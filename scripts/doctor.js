@@ -1,11 +1,13 @@
 import { execFile } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 const executeFile = promisify(execFile);
-const manifestUrl = new URL('../integrations/source-projects.json', import.meta.url);
+const localManifestUrl = new URL('../integrations/source-projects.local.json', import.meta.url);
+const manifestUrl = existsSync(localManifestUrl) ? localManifestUrl : new URL('../integrations/source-projects.json', import.meta.url);
 
 // This list is code-owned. No caller, manifest, environment variable or URL
 // parameter can change the destinations of a status check.

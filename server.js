@@ -27,7 +27,9 @@ export function createPlatform({ dataDir = join(root, 'data'), discovery } = {})
         context.send(response, 200, content, asset[1]); return true;
       }
       if (url.pathname === '/api/projects') {
-        context.send(response, 200, JSON.parse(readFileSync(join(root, 'integrations/source-projects.json'), 'utf8'))); return true;
+        const localCatalog = join(root, 'integrations/source-projects.local.json');
+        const catalog = existsSync(localCatalog) ? localCatalog : join(root, 'integrations/source-projects.json');
+        context.send(response, 200, JSON.parse(readFileSync(catalog, 'utf8'))); return true;
       }
       if (url.pathname === '/api/integrations/status') { context.send(response, 200, { integrations: await probeIntegrationStatus() }); return true; }
     }

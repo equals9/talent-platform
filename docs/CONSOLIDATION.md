@@ -10,4 +10,6 @@ only its declared role/candidate subset. Preview warnings identify these gaps.
 VitalCV and other source projects are not included or relicensed in this bundle.
 
 The personal development workspace and private inventory are intentionally not
-distributed. The included integrations/source-projects.json starts empty.
+distributed. The included integrations/source-projects.json starts empty. A
+local override at integrations/source-projects.local.json takes precedence
+and is ignored by Git.

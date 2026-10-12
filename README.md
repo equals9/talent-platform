@@ -24,9 +24,11 @@ workspace version 1. Preview shows omitted fields before explicit commit.
 Imported email labels cannot become approved contacts without separate source
 evidence and review. No names are automatically merged.
 
-This source bundle has an empty source-project catalog and no personal
+This repository starts with an empty source-project catalog and no personal
 records, credentials, source-repository paths, raw audit downloads or private
-inventories. Add your own source entries using the catalog schema if needed.
+inventories. Add your own entries in ignored `integrations/source-projects.local.json`
+using the catalog schema if needed. An ignored `talent-platform.local.code-workspace`
+can link existing source folders for your own development setup.
 `npm run doctor` inspects registered source folders and fixed local service
 reachability without starting services or reading candidate payloads.
 

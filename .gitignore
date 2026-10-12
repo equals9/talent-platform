@@ -10,3 +10,9 @@ research/upstream/
 evidence/private/
 tmp/
 dist/
+*.local.md
+*.local.code-workspace
+integrations/*.local.json
+docs/source-links.json
+evidence/
+research/OPEN_SOURCE_EVIDENCE.json

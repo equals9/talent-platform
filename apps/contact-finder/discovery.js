@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import http from 'node:http';
 import https from 'node:https';
@@ -10,6 +10,7 @@ const MAX_RESULTS = 50;
 const SHARED_LOCALS = new Set(['info', 'contact', 'hello', 'support', 'sales', 'office', 'admin', 'help', 'reception', 'appointments', 'careers', 'jobs', 'hr', 'team', 'enquiries', 'inquiries', 'billing', 'press', 'marketing', 'recruiting', 'recruitment', 'noreply', 'no-reply']);
 const ASSET_SUFFIXES = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'avif', 'ico', 'css', 'js', 'woff', 'woff2', 'ttf', 'map', 'pdf']);
 const PLACEHOLDER_DOMAINS = new Set(['example.com', 'example.org', 'example.net', 'example.invalid', 'yourdomain.com', 'your-domain.com']);
+const PLACEHOLDER_EMAILS = new Set(['example@email.com']);
 
 function ipv6Words(address) {
   if (!address.includes(':') || address.includes('%')) return null;
@@ -210,6 +211,7 @@ function decodePercent(text) {
 
 export function isPlausibleEmail(email) {
   if (typeof email !== 'string' || email.length > 254) return false;
+  if (PLACEHOLDER_EMAILS.has(email.toLowerCase())) return false;
   const at = email.lastIndexOf('@');
   const local = email.slice(0, at);
   const domain = email.slice(at + 1).toLowerCase();
@@ -220,21 +222,70 @@ export function isPlausibleEmail(email) {
   return true;
 }
 
-export function extractEmails(content, { html = false } = {}) {
+function plainText(value) {
+  return decodePercent(decodeEntities(String(value).replace(/<![^>]*>|<\/?[a-z][a-z0-9:-]*(?=[\s/>])[^>]*>/gi, ' '))).replace(/\s+/g, ' ').trim();
+}
+function nameEvidence(prefix, name, quoteKind) {
+  if (!name?.trim()) return undefined;
+  const normalize = value => value.toLowerCase().normalize('NFKD').replace(/\p{M}/gu, '');
+  const words = [...new Set((normalize(name).match(/\p{L}{2,}/gu) || []).filter(word => !['dr','doctor','md','phd','prof','professor'].includes(word)))];
+  // Only look BEFORE the address and after the preceding email. A different
+  // person's name after an address cannot support that address's association.
+  const priorAddresses = [...prefix.matchAll(/[\w.!#$%&'*+/=?^`{|}~-]+@(?:[\w-]+\.)+[a-z]{2,63}/gi)];
+  const previous = priorAddresses.at(-1);
+  const passage = prefix.slice(Math.max(prefix.length - 500, previous ? previous.index + previous[0].length : 0)).trim();
+  const observedWords = new Set(normalize(passage).match(/\p{L}{2,}/gu) || []);
+  const supported = words.length >= 2 && words.every(word => observedWords.has(word));
+  return { state: supported ? 'name_near_email' : 'not_located', name, quoteKind, ...(supported ? { quote: passage } : {}), authority: 'textual_context_requires_human_review' };
+}
+
+export function publicPageMetadata(content, { html = true } = {}) {
+  if (!html) return {};
+  const text = String(content).replace(/<!--[\s\S]*?-->/g, ' ').replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ');
+  const metadata = {};
+  for (const tag of text.matchAll(/<meta\b[^>]*>/gi)) {
+    const fields = {};
+    for (const attr of tag[0].matchAll(/\b(name|property|content)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) fields[attr[1].toLowerCase()] = decodeEntities(attr[2] ?? attr[3] ?? attr[4]);
+    const key = (fields.name || fields.property || '').toLowerCase();
+    if (['citation_title','citation_journal_title'].includes(key)) metadata.sourcePurpose = 'publication_correspondence';
+    if (!metadata.reportedPublicationDate && ['citation_publication_date','citation_date','dc.date','dc.date.issued','article:published_time'].includes(key)) {
+      const match = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:$|T|\s)/.exec(fields.content || '');
+      if (!match) continue;
+      const date = `${match[1]}-${match[2].padStart(2,'0')}-${match[3].padStart(2,'0')}`;
+      const parsed = new Date(date + 'T00:00:00Z');
+      if (Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0,10) === date) { metadata.reportedPublicationDate = date; metadata.publicationDateSource = key; }
+    }
+  }
+  return metadata;
+}
+
+export function extractEmails(content, { html = false, name = '' } = {}) {
   const source = String(content || '');
   if (Buffer.byteLength(source, 'utf8') > MAX_BYTES) throw new Error('Source text exceeds the 2 MB size limit. Paste a smaller excerpt.');
   const withoutHidden = html ? source.replace(/<!--[\s\S]*?-->/g, ' ').replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ') : source;
   const mailtos = [];
   if (html) {
+    let priorLinkEnd = 0;
     for (const match of withoutHidden.matchAll(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
       const href = decodeEntities(match[1] ?? match[2] ?? match[3]);
-      if (/^mailto:/i.test(href.trim())) mailtos.push(decodePercent(href.trim().slice(7).split('?')[0]));
+      if (/^mailto:/i.test(href.trim())) {
+        const beforeHref = withoutHidden.slice(0, match.index);
+        const anchor = [...beforeHref.matchAll(/<a\b/gi)].at(-1)?.index;
+        const openingEnd = withoutHidden.indexOf('>', match.index);
+        const closing = openingEnd < 0 ? null : /<\/a\s*>/gi.exec(withoutHidden.slice(openingEnd + 1));
+        const label = closing ? plainText(withoutHidden.slice(openingEnd + 1, openingEnd + 1 + closing.index)) : '';
+        const prefix = `${plainText(withoutHidden.slice(priorLinkEnd, anchor ?? match.index))} ${label}`.trim();
+        mailtos.push({ value: decodePercent(href.trim().slice(7).split('?')[0]), prefix });
+        // Mailto-only addresses vanish from visible text. Reset at their actual
+        // anchor boundary so one person's name cannot support a later link.
+        priorLinkEnd = closing ? openingEnd + 1 + closing.index + closing[0].length : match.index + match[0].length;
+      }
     }
   }
-  const visible = decodePercent(decodeEntities(html ? withoutHidden.replace(/<![^>]*>|<\/?[a-z][a-z0-9:-]*(?=[\s/>])[^>]*>/gi, ' ') : withoutHidden)).replace(/\s+/g, ' ').trim();
+  const visible = html ? plainText(withoutHidden) : decodePercent(decodeEntities(withoutHidden)).replace(/\s+/g, ' ').trim();
   const matches = new Map();
   const emailPattern = /[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}/gi;
-  for (const [text, linked] of [[visible, false], ...mailtos.map(value => [value, true])]) {
+  for (const [text, linked, linkPrefix] of [[visible, false, ''], ...mailtos.map(item => [item.value, true, item.prefix])]) {
     for (const match of text.matchAll(emailPattern)) {
       const email = match[0].toLowerCase();
       if (!isPlausibleEmail(email) || matches.has(email)) continue;
@@ -245,23 +296,28 @@ export function extractEmails(content, { html = false } = {}) {
       if (text[match.index - 1] === '@' || email.startsWith('//')) continue;
       const start = Math.max(0, match.index - 100);
       const end = Math.min(text.length, match.index + match[0].length + 140);
-      const context = linked ? `Email link on source page: ${email}` : `${start ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
+      const quoteKind = linked ? 'html_email_link' : 'normalized_page_excerpt';
+      const associationEvidence = nameEvidence(linked ? linkPrefix : text.slice(0,match.index), name, quoteKind);
+      const context = linked ? `${associationEvidence?.quote || linkPrefix.slice(-160)}${linkPrefix ? ' · ' : ''}Email link on source page: ${email}` : `${start ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`;
       const flags = [];
       if (SHARED_LOCALS.has(email.split('@')[0])) flags.push('shared_mailbox');
-      matches.set(email, { email, context, flags });
+      if (associationEvidence?.state === 'not_located') flags.push('person_context_not_located');
+      matches.set(email, { email, context, quoteKind, ...(associationEvidence ? { associationEvidence } : {}), flags });
       if (matches.size === MAX_RESULTS) return [...matches.values()];
     }
   }
   return [...matches.values()];
 }
 
-export async function discover({ mode, sourceUrl, sourceText } = {}) {
+export async function discover({ mode, sourceUrl, sourceText, input = {} } = {}, { isSourceExcluded = () => false } = {}) {
   let content;
   let url;
   let sourceType;
   let html = false;
   if (mode === 'public') {
-    const page = await safeFetch(sourceUrl);
+    const page = await safeFetch(sourceUrl, { beforeRequest: url => {
+      if (isSourceExcluded(url.href)) throw new Error('This public source is excluded across the workspace.');
+    } });
     content = page.text;
     url = page.url;
     html = page.contentType !== 'text/plain';
@@ -276,9 +332,10 @@ export async function discover({ mode, sourceUrl, sourceText } = {}) {
     throw new Error('Choose public-page lookup or pasted source text. Provider enrichment is disabled.');
   }
   const observedAt = new Date().toISOString();
-  return extractEmails(content, { html }).map(candidate => ({
+  const metadata = publicPageMetadata(content, { html });
+  return extractEmails(content, { html, name: input.name }).map(candidate => ({
     id: randomUUID(), ...candidate, sourceType,
-    sources: url ? [{ url, observedAt }] : [],
+    sources: url ? [{ url, observedAt, context: candidate.context, quoteKind: candidate.quoteKind, associationEvidence: candidate.associationEvidence, contentHash: createHash('sha256').update(content).digest('hex'), contentBytes: Buffer.byteLength(content), ...metadata }] : [],
     ownership: 'unreviewed', deliverability: 'unknown', verificationAt: null,
     date: observedAt, review: 'pending',
     flags: [...candidate.flags, ...(sourceType === 'pasted_text' ? ['user_supplied_source_text'] : []), ...(!url ? ['missing_source_url'] : [])],

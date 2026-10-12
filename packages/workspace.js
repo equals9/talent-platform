@@ -105,17 +105,23 @@ export function changeStage(db, { roleId, candidateId, stage }) {
   return membership;
 }
 
-export function contactsForCandidate(db, candidate, context) {
-  if (isProfileExcluded(db, candidate)) return [];
+function researchJobs(candidate, context) {
   const ids = [...new Set([...(candidate.researchJobIds || []), ...(candidate.provenance?.kind === 'contact_research' ? [candidate.sourceId] : [])])];
+  return ids.map(id => context.getJob(id)).filter(Boolean);
+}
+function candidateExcluded(db, candidate, context) {
+  return isProfileExcluded(db, candidate) || researchJobs(candidate, context).some(job => job.excluded);
+}
+export function contactsForCandidate(db, candidate, context) {
+  if (candidateExcluded(db, candidate, context)) return [];
   // Keeping a prospect is independent from confirming any address on its source pages.
-  return ids.flatMap(id => (context.getJob(id)?.results || []).map(result => ({ ...result, jobId: id })));
+  return researchJobs(candidate, context).flatMap(job => (job.results || []).map(result => ({ ...result, jobId: job.id })));
 }
 
 export async function workspaceRoutes(request, response, url, context) {
   const { db, send, bodyJson } = context;
   if (url.pathname === '/api/workspace' && request.method === 'GET') {
-    const candidates = all(db, 'platform_candidates').map(candidate => ({ ...candidate, excluded: isProfileExcluded(db, candidate), contacts: contactsForCandidate(db, candidate, context) }));
+    const candidates = all(db, 'platform_candidates').map(candidate => ({ ...candidate, excluded: candidateExcluded(db, candidate, context), contacts: contactsForCandidate(db, candidate, context) }));
     return send(response, 200, { roles: all(db, 'platform_roles'), candidates, memberships: all(db, 'platform_memberships'), events: all(db, 'platform_events').slice(0, 300), imports: all(db, 'platform_imports'), stages: STAGES, mode: 'public_sources_only' }), true;
   }
   if (url.pathname === '/api/roles' && request.method === 'POST') {
@@ -130,9 +136,12 @@ export async function workspaceRoutes(request, response, url, context) {
     const input = await bodyJson(request);
     const job = context.getJob(string(input.jobId, 'Research ID', 100, true));
     if (!job) throw fail('Research search not found.', 404);
+    if (job.excluded) throw fail('This research includes an excluded public source or profile.', 409);
     if (job.status === 'running') throw fail('Wait for the research to finish before keeping this prospect.');
     const result = atomic(db, () => {
       const kept = createCandidate(db, { ...job.input, profileUrl: job.input.linkedinUrl || job.sourceUrl }, { kind: 'contact_research', sourceProject: 'lead-finder', sourceId: job.id, originKey: `lead-finder:${job.id}`, observedAt: job.updatedAt, authority: 'source_observation_requires_review' });
+      kept.candidate.profileUrls = [...new Set([...(kept.candidate.profileUrls || []), kept.candidate.profileUrl, job.sourceUrl, ...(job.supplementalSourceUrls || []), ...(job.coverage?.pages || []).map(page => page.url), ...(job.results || []).flatMap(result => (result.sources || []).map(source => source.url))].filter(Boolean))];
+      db.prepare('UPDATE platform_candidates SET document=? WHERE id=?').run(JSON.stringify(kept.candidate), kept.candidate.id);
       if (input.roleId) attachCandidate(db, { roleId: input.roleId, candidateId: kept.candidate.id });
       return kept;
     });
@@ -140,23 +149,29 @@ export async function workspaceRoutes(request, response, url, context) {
   }
   if (url.pathname === '/api/pipeline' && request.method === 'POST') {
     const input = await bodyJson(request);
+    const candidate = get(db, 'platform_candidates', string(input.candidateId, 'Candidate ID', 100, true));
+    if (candidate && candidateExcluded(db, candidate, context)) throw fail('This prospect includes excluded source research.', 409);
     const membership = atomic(db, () => attachCandidate(db, input)); return send(response, 201, { membership }), true;
   }
   if (url.pathname === '/api/pipeline/stage' && request.method === 'POST') {
     const input = await bodyJson(request);
+    const candidate = get(db, 'platform_candidates', string(input.candidateId, 'Candidate ID', 100, true));
+    if (candidate && candidateExcluded(db, candidate, context)) throw fail('This prospect includes excluded source research.', 409);
     const membership = atomic(db, () => changeStage(db, input)); return send(response, 200, { membership }), true;
   }
   if (url.pathname === '/api/pipeline/export' && request.method === 'GET') {
     const roleId = string(url.searchParams.get('roleId'), 'Role ID', 100, true);
     if (!get(db, 'platform_roles', roleId)) throw fail('Role not found.', 404);
     const memberships = all(db, 'platform_memberships').filter(item => item.roleId === roleId);
-    const rows = memberships.filter(membership => !isProfileExcluded(db, get(db, 'platform_candidates', membership.candidateId))).map(membership => {
+    const rows = memberships.filter(membership => !candidateExcluded(db, get(db, 'platform_candidates', membership.candidateId), context)).map(membership => {
       const candidate = get(db, 'platform_candidates', membership.candidateId);
       const approved = contactsForCandidate(db, candidate, context).filter(contact => contact.review === 'approved' && contact.deliverability !== 'invalid' && !context.isSuppressed(contact.email));
-      return { name: candidate.name, company: candidate.company, stage: membership.stage, profile_url: candidate.profileUrl, source_project: candidate.sourceProject, source_id: candidate.sourceId, approved_emails: approved.map(contact => contact.email).join(' | '), deliverability: approved.length ? 'unknown' : '', source_urls: [...new Set([...approved.flatMap(contact => contact.sources.map(source => source.url).filter(Boolean)), ...evidenceLinks(db, candidate)])].join(' | '), evidence_snapshot_ids: (candidate.evidenceSnapshotIds || []).join(' | '), qualification_state: candidate.qualificationState || 'unknown', notes: candidate.notes };
+      const jobs = researchJobs(candidate, context);
+      const researchSources = [...new Set(jobs.flatMap(job => (job.coverage?.pages || []).filter(page => page.status === 'read').map(page => page.url)))];
+      return { name: candidate.name, company: candidate.company, stage: membership.stage, profile_url: candidate.profileUrl, source_project: candidate.sourceProject, source_id: candidate.sourceId, approved_emails: approved.map(contact => contact.email).join(' | '), deliverability: approved.length ? 'unknown' : '', source_urls: [...new Set([...approved.flatMap(contact => contact.sources.map(source => source.url).filter(Boolean)), ...evidenceLinks(db, candidate)])].join(' | '), research_source_urls: researchSources.join(' | '), evidence_snapshot_ids: (candidate.evidenceSnapshotIds || []).join(' | '), qualification_state: candidate.qualificationState || 'unknown', notes: candidate.notes };
     });
     if (url.searchParams.get('format') === 'json') return send(response, 200, { count: rows.length, candidates: rows }), true;
-    const columns = ['name', 'company', 'stage', 'profile_url', 'source_project', 'source_id', 'approved_emails', 'deliverability', 'source_urls', 'evidence_snapshot_ids', 'qualification_state', 'notes'];
+    const columns = ['name', 'company', 'stage', 'profile_url', 'source_project', 'source_id', 'approved_emails', 'deliverability', 'source_urls', 'research_source_urls', 'evidence_snapshot_ids', 'qualification_state', 'notes'];
     response.setHeader('Content-Disposition', 'attachment; filename="role-pipeline.csv"');
     send(response, 200, '\uFEFF' + [columns.map(csvCell).join(','), ...rows.map(row => columns.map(key => csvCell(row[key])).join(','))].join('\r\n') + '\r\n', 'text/csv; charset=utf-8');
     return true;

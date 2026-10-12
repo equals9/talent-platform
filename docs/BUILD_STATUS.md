@@ -1,55 +1,61 @@
-# Build status — live evidence milestone, v0.2.0
+# Build status — public email workflow, v0.3.0
 
-Implemented: a local recruiter workspace with public-source contact research,
-review, global exclusions, roles, explicit saved candidates, pipeline events,
-reviewed exports and import adapters. Live adapters now connect selected
-Candidate Intelligence professional evidence, existing TalentOS role briefs and
-public-reference candidates, and fixed VitalCV public typed-claim reads.
+Implemented: a local recruiter workspace with public contact research, review,
+global exclusions, roles, explicit saved candidates, pipeline events, reviewed
+exports and optional live read-only evidence adapters for Candidate Intelligence,
+TalentOS and VitalCV. Original source projects retain their stores and identity.
 
-Verified locally on Node.js 26.9.0: **99 Node tests and 14 Python reader tests
-passed**, with zero failures/skips. JavaScript syntax and diff checks passed.
-The source-bridge Python tests used the existing source environment; they need
-SQLAlchemy 2.0.54 but no production database. Hosted CI is configured for
-Node 24/26 and Python 3.12; consult Actions for the exact published commit.
+Version 0.3 adds up to four explicitly selected public source pages within the
+existing shared five-page/45-second website budget. Selected seeds run before
+other links; each seed has its own origin and robots boundary. Source evidence
+retains quote kind, normalized context, retrieval timestamp, content digest and
+byte count. Reported publication dates remain separate from observation time.
+Name proximity is a review hint; unrelated addresses are preserved separately.
+No new observation is automatically approved or considered deliverable.
 
-Rendered verification used a separate local database with actual authorized
-source reads:
+Verified locally on Node.js 26.9.0: **136 Node tests and 14 Python reader tests
+passed**, zero failures/skips. JavaScript syntax and diff checks passed. The
+reader tests used the existing source Python environment with SQLAlchemy; they
+need no production database. Hosted CI is configured for Node 24/26 and Python
+3.12; consult Actions for the exact published revision.
 
-- Inspected an existing TalentOS brief before explicit import.
-- Searched by public specialty/location keywords, inspected original assertions,
-  and explicitly kept one real professional to the role at `researched`.
-- Read VitalCV by the exact canonical NPI. The missing record was retained as
-  `no_record`, with unknown qualification and no independent acceptance.
-- Reloaded and inspected immutable source snapshots, original IDs, observation
-  times and digests. A downloaded pipeline CSV retained source/snapshot lineage
-  and omitted all unapproved email contacts.
-- Inspected a separate live professional profile with 57 original webpage
-  passages; reading it kept nobody in the normal user workspace.
-- Checked the rendered user workspace's three live source statuses; browser
-  error/warning logs were empty at final inspection.
+A real recruiting workflow was tested in a separate local store. Five prospects
+were selected from an official internal-medicine directory before email
+availability inspection, for a publicly posted physician role. Primary-only
+baseline runs produced the same 13 unrelated address observations per prospect,
+including a form placeholder, and zero prospect-specific evidence. Revised runs
+with manually nominated public sources produced named address observations for
+**2 of the same 5 prospects**. One supplementary page timed out, one publisher
+could not establish robots rules, and one prospect had no address in checked
+sources. These failures and the original runs were retained. The comparison
+includes a changed source plan; it is development evidence, not held-out recall.
 
-Data preservation was checked separately: original platform table contents
-matched their baseline; five original Candidate Intelligence recruiting tables
-retained identical counts/digests; the TalentOS database byte hash was unchanged.
-The Candidate Intelligence connection rejected a write with SQLSTATE 25006.
-Original source branches, stores, historical observations and recruiter notes
-were retained. Private evidence/configuration and upstream source code are
-excluded from public publication.
+Browser verification covered source-plan reuse, Website-only supplemental input,
+form submission and cached replay, named evidence with hashes and unknown
+reachability, separate unrelated-address history, explicit Keep to the role,
+persistence after reload and downloaded pipeline CSV. Five researched prospects
+and their research source links remained present; all unapproved email columns
+were empty. No real-person association was approved or outreach sent.
 
-Regression controls cover missing authorization, read-only bridge identity,
-bounded/invalid reads, exact-NPI binding, invalid-role rollback, explicit Keep,
-no name merge, immutable history, pending/unknown contact state, source email and
-profile exclusions, an older source-page approval/export bypass, and actions
-blocked when the configured exclusion feed is unavailable.
+Regression controls include invalid whole-plan validation before acquisition,
+shared page/time budgets, independent origin/robots boundaries, SSRF and redirect
+denials, changed-plan cache isolation, visible/mailto multi-person association
+boundaries, hidden-payload/no-guessing behavior, malformed date handling, retained
+unknown/pending states, source exclusions before linked/redirected requests,
+late exclusions after Keep, historical records without supplemental fields,
+role-stage/export denials, sticky email exclusions and unavailable-feed refusal.
+An independent reviewer reproduced a mailto-only cross-person false association;
+the corrected extractor passed the regression.
 
-The workflow revealed and fixed literal-phrase-only discovery: combined title
-and city keywords now require every literal term in both the indexed prefilter
-and reconstructed current public fields. Coverage remains bounded and exposed.
-Public registry records frequently lack contact/current-employer evidence;
-missing provider records and upstream unknown/simulated/stale credential claims
-remain gaps, not qualification.
+Normal platform table counts and digests matched their pre-pilot baseline; the
+TalentOS database byte hash was unchanged. Candidate Intelligence stayed clean,
+and the existing dirty TalentOS/VitalCV branches were retained without edits.
+Configured evidence readers remained available. Private pilot records, personal
+config, source inventories, credentials and upstream code are excluded from the
+public source bundle.
 
-No real-person email association was approved, outreach sent, eligibility decided,
-hiring outcome observed or competitor comparison executed. A working adapter
-does not prove complete data coverage, issuer verification or production team
-readiness. The app remains a trusted single-user loopback workspace.
+Manual source nomination, unavailable/non-email pages, format coverage and live
+network failures remain practical constraints. Candidate qualification,
+recruiting interest and all email deliverability are unknown. The app remains a
+trusted single-user loopback workspace; neither competitor superiority nor
+production team readiness nor hiring outcomes have been demonstrated.

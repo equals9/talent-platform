@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { safeFetch, validatePublicUrl, decodeEntities, extractEmails } from './discovery.js';
+import { safeFetch, validatePublicUrl, decodeEntities, extractEmails, publicPageMetadata } from './discovery.js';
 import { parseRobots } from './robots.js';
 
 const MAX_PAGES = 5;
@@ -57,29 +57,45 @@ export function contactLinks(html, pageUrl, name = '') {
 
 // Dependency injection is for deterministic boundary tests. Production always
 // uses safeFetch, which checks DNS and pins each network connection.
-export async function discoverWebsite({ sourceUrl, input = {} }, { fetchPage = safeFetch, now = Date.now, wait = sleep } = {}) {
+export async function discoverWebsite({ sourceUrl, supplementalSourceUrls = [], input = {} }, { fetchPage = safeFetch, now = Date.now, wait = sleep, isSourceExcluded = () => false } = {}) {
   const start = validatePublicUrl(sourceUrl);
   if (start.search) throw new Error('Website search starts from a URL without query parameters. Use Single page for a specific query URL.');
+  if (!Array.isArray(supplementalSourceUrls) || supplementalSourceUrls.length > MAX_PAGES - 1) throw new Error('Select at most four supplemental public source URLs.');
+  // Validate the entire selection before any network access. Selecting one
+  // additional public page authorizes that seed and its own bounded same-origin
+  // navigation, never arbitrary sibling domains or another seed's redirects.
+  const selected = new Map([[start.href, start]]);
+  for (const value of supplementalSourceUrls) {
+    const url = validatePublicUrl(value);
+    if (url.search) throw new Error('Supplemental website sources must not contain query parameters. Use Single page for a specific query URL.');
+    if (!selected.has(url.href)) selected.set(url.href, url);
+  }
+  const seeds = [...selected.values()].map(url => ({ url: url.href, allowedOrigins: canonicalOrigins(url), origin: null }));
   const deadline = now() + MAX_DURATION_MS;
   const coverage = { startedFrom: start.href, maxPages: MAX_PAGES, pages: [], warnings: [], stopReason: 'finished', robots: [] };
+  if (supplementalSourceUrls.length) {
+    coverage.selectedSourceUrls = seeds.map(seed => seed.url);
+    coverage.sourceSelection = 'explicit_public_sources';
+  }
   const results = new Map();
   const seen = new Set();
-  const queued = new Set([start.href]);
+  const queued = new Set(seeds.map(seed => seed.url));
   const policies = new Map();
   const lastRequests = new Map();
-  let origin;
   let timedOut = false;
-  const seedOrigins = canonicalOrigins(start);
-  const queue = [{ url: start.href, depth: 0, score: 1000 }];
+  const queue = seeds.map(seed => ({ url: seed.url, depth: 0, score: 1000, seed }));
 
   async function policyFor(url) {
     if (policies.has(url.origin)) return policies.get(url.origin);
     const robotsUrl = new URL('/robots.txt', url).href;
     let policy;
     try {
-      const page = await fetchPage(robotsUrl, { allowedOrigins: canonicalOrigins(url), deadline });
+      const allowedOrigins = canonicalOrigins(url);
+      const page = await fetchPage(robotsUrl, { allowedOrigins, deadline });
+      const finalUrl = validatePublicUrl(page.url);
+      if (!allowedOrigins.includes(finalUrl.origin) || finalUrl.search) throw blocked('Robots access rules left the selected website and were blocked.');
       policy = parseRobots(page.text);
-      coverage.robots.push({ url: page.url, status: 'read', observedAt: stamp() });
+      coverage.robots.push({ url: finalUrl.href, status: 'read', observedAt: stamp() });
     } catch (error) {
       if (error.statusCode === 404 || error.statusCode === 410) {
         policy = parseRobots('');
@@ -95,6 +111,7 @@ export async function discoverWebsite({ sourceUrl, input = {} }, { fetchPage = s
   }
 
   async function beforeRequest(url) {
+    if (isSourceExcluded(url.href)) throw blocked('This public source is excluded across the workspace.');
     if (url.search) throw blocked('A redirect added query parameters and was not followed.');
     const policy = await policyFor(url);
     if (policy.error) throw blocked(policy.error);
@@ -115,26 +132,46 @@ export async function discoverWebsite({ sourceUrl, input = {} }, { fetchPage = s
     const entry = { url: candidate.url, status: 'read', emailCount: 0, observedAt: stamp() };
     coverage.pages.push(entry);
     try {
-      const allowedOrigins = candidate.depth === 0 ? seedOrigins : [origin];
+      if (isSourceExcluded(candidate.url)) throw blocked('This public source is excluded across the workspace.');
+      const allowedOrigins = candidate.depth === 0 ? candidate.seed.allowedOrigins : [candidate.seed.origin];
       const page = await fetchPage(candidate.url, { allowedOrigins, beforeRequest: async url => {
         if (url.href !== candidate.url && seen.has(url.href)) throw Object.assign(new Error('This page was already checked through another URL.'), { duplicate: true, url: url.href });
         await beforeRequest(url);
       }, deadline });
       // Also validate adapter output; tests and future adapters cannot expand scope.
       const finalUrl = validatePublicUrl(page.url);
+      if (isSourceExcluded(finalUrl.href)) throw blocked('This public source is excluded across the workspace.');
       if (!allowedOrigins.includes(finalUrl.origin) || finalUrl.search) throw blocked('The page left the selected website and was blocked.');
-      if (!origin) origin = finalUrl.origin;
+      if (!candidate.seed.origin) candidate.seed.origin = finalUrl.origin;
       entry.url = finalUrl.href;
       entry.observedAt = stamp();
       if (seen.has(finalUrl.href) && finalUrl.href !== candidate.url) { entry.status = 'duplicate'; continue; }
       seen.add(finalUrl.href);
-      const candidates = extractEmails(page.text, { html: page.contentType !== 'text/plain' });
+      const contentHash = createHash('sha256').update(page.text).digest('hex');
+      const contentBytes = Buffer.byteLength(page.text);
+      entry.contentHash = contentHash;
+      entry.contentBytes = contentBytes;
+      const html = page.contentType !== 'text/plain';
+      const publication = publicPageMetadata(page.text, { html });
+      Object.assign(entry, publication);
+      const candidates = extractEmails(page.text, { html, name: input.name });
       entry.emailCount = candidates.length;
       for (const email of candidates) {
-        const source = { url: finalUrl.href, observedAt: entry.observedAt, context: email.context };
+        const source = { url: finalUrl.href, observedAt: entry.observedAt, context: email.context, quoteKind: email.quoteKind,
+          associationEvidence: email.associationEvidence, contentHash, contentBytes, ...publication };
         const existing = results.get(email.email);
         if (existing) {
           if (!existing.sources.some(item => item.url === source.url)) existing.sources.push(source);
+          existing.flags = [...new Set([...existing.flags, ...email.flags])];
+          // Prefer an observed nearby name for display without discarding the
+          // earlier unrelated observation or asserting that the address belongs
+          // to the person. Human association review is still required.
+          if (email.associationEvidence?.state === 'name_near_email' && existing.associationEvidence?.state !== 'name_near_email') {
+            existing.associationEvidence = email.associationEvidence;
+            existing.context = email.context;
+            existing.quoteKind = email.quoteKind;
+          }
+          if (existing.associationEvidence?.state === 'name_near_email') existing.flags = existing.flags.filter(flag => flag !== 'person_context_not_located');
           continue;
         }
         if (results.size >= MAX_RESULTS) { if (!coverage.warnings.includes('Results are limited to 50 unique emails.')) coverage.warnings.push('Results are limited to 50 unique emails.'); continue; }
@@ -144,7 +181,7 @@ export async function discoverWebsite({ sourceUrl, input = {} }, { fetchPage = s
         for (const link of contactLinks(page.text, finalUrl.href, input.name)) {
           if (queued.has(link.url) || seen.has(link.url)) continue;
           queued.add(link.url);
-          queue.push({ ...link, depth: candidate.depth + 1 });
+          queue.push({ ...link, depth: candidate.depth + 1, seed: candidate.seed });
         }
         queue.sort((a, b) => b.score - a.score || a.depth - b.depth);
       }

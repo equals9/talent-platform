@@ -1,6 +1,6 @@
 {
   "name": "talent-platform",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -8,7 +8,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test apps/contact-finder/test/*.test.js test/*.test.js",
-    "check": "node --check server.js && node --check packages/workspace.js && node --check public/platform.js && node --check packages/imports.js && node --check packages/live-sources.js && node --check packages/source-policy.js && node --check packages/source-workspace.js && node --check packages/talentos-reader.js && node --check packages/vitalcv-reader.js",
+    "check": "node --check server.js && node --check packages/workspace.js && node --check public/platform.js && node --check packages/imports.js && node --check packages/live-sources.js && node --check packages/source-policy.js && node --check packages/source-workspace.js && node --check packages/talentos-reader.js && node --check packages/vitalcv-reader.js && node --check apps/contact-finder/discovery.js && node --check apps/contact-finder/website-discovery.js && node --check apps/contact-finder/server.js",
     "doctor": "node scripts/doctor.js",
     "consolidate:contacts": "node scripts/consolidate-contacts.js",
     "test:reader": "python3 -m unittest discover -s test -p test_candidate_reader.py -v"

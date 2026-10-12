@@ -4,7 +4,7 @@ import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypt
 import { mkdirSync, chmodSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { discover } from './discovery.js';
+import { discover, validatePublicUrl } from './discovery.js';
 import { discoverWebsite } from './website-discovery.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -50,7 +50,20 @@ export function normalizeRequest(body) {
   }
   const idempotencyKey = text(body.idempotencyKey, 120);
   if (!idempotencyKey) throw fail('A request ID is required. Reload the app and try again.');
-  return { mode: body.mode, input, sourceUrl, sourceText, idempotencyKey, retry: body.retry === true };
+  let supplementalSourceUrls = body.supplementalSourceUrls ?? [];
+  if (!Array.isArray(supplementalSourceUrls) || supplementalSourceUrls.length > 4 || supplementalSourceUrls.some(value => typeof value !== 'string' || !value.trim() || value.length > 4000)) throw fail('Choose up to four additional public source URLs.');
+  if (supplementalSourceUrls.length && body.mode !== 'website') throw fail('Additional public sources require Website search.');
+  if (body.mode === 'website') {
+    try {
+      sourceUrl = validatePublicUrl(sourceUrl).href;
+      supplementalSourceUrls = [...new Set(supplementalSourceUrls.map(value => {
+        const url = validatePublicUrl(value);
+        if (url.search) throw new Error('Queries are not supported.');
+        return url.href;
+      }))].filter(value => value !== sourceUrl);
+    } catch { throw fail('Choose complete public HTTP(S) source URLs without credentials, query parameters, LinkedIn or private addresses.'); }
+  }
+  return { mode: body.mode, input, sourceUrl, sourceText, ...(supplementalSourceUrls.length ? { supplementalSourceUrls } : {}), idempotencyKey, retry: body.retry === true };
 }
 
 export function csvCell(value) {
@@ -59,9 +72,9 @@ export function csvCell(value) {
   return '"' + result.replaceAll('"', '""') + '"';
 }
 
-const runDiscovery = args => args.mode === 'website' ? discoverWebsite(args) : discover(args);
+const runDiscovery = (args, options) => args.mode === 'website' ? discoverWebsite(args, options) : discover(args, options);
 
-export function createApp({ dataDir = join(root, 'data'), discovery = runDiscovery, configure, extraRoutes, isJobExcluded = () => false } = {}) {
+export function createApp({ dataDir = join(root, 'data'), discovery = runDiscovery, configure, extraRoutes, isJobExcluded = () => false, isInputExcluded = () => false } = {}) {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   chmodSync(dataDir, 0o700);
   const dbFile = join(dataDir, 'contacts.sqlite');
@@ -125,7 +138,8 @@ export function createApp({ dataDir = join(root, 'data'), discovery = runDiscove
     }
     if (url.pathname === '/api/discover' && request.method === 'POST') {
       const args = normalizeRequest(await bodyJson(request));
-      const fingerprint = createHash('sha256').update(JSON.stringify({ mode: args.mode, input: args.input, sourceUrl: args.sourceUrl, sourceText: args.sourceText })).digest('hex');
+      if (isInputExcluded(db, args)) throw fail('A selected public source or profile is excluded across this workspace.', 409);
+      const fingerprint = createHash('sha256').update(JSON.stringify({ mode: args.mode, input: args.input, sourceUrl: args.sourceUrl, sourceText: args.sourceText, ...(args.supplementalSourceUrls?.length ? { supplementalSourceUrls: args.supplementalSourceUrls } : {}) })).digest('hex');
       const sameKey = db.prepare('SELECT job_id AS id, fingerprint FROM requests WHERE request_key = ?').get(args.idempotencyKey);
       if (sameKey) {
         if (sameKey.fingerprint !== fingerprint) throw fail('Request ID was already used for different inputs.', 409);
@@ -138,11 +152,11 @@ export function createApp({ dataDir = join(root, 'data'), discovery = runDiscove
         return send(response, 200, { job: previousJob, cached: true });
       }
       if (active >= 3) throw fail('Three page checks are already running. Wait for one to finish.', 429);
-      const job = { id: randomUUID(), input: args.input, mode: args.mode, sourceUrl: args.sourceUrl, status: 'running', createdAt: now(), updatedAt: now(), results: [], error: null };
+      const job = { id: randomUUID(), input: args.input, mode: args.mode, sourceUrl: args.sourceUrl, ...(args.supplementalSourceUrls?.length ? { supplementalSourceUrls: args.supplementalSourceUrls } : {}), status: 'running', createdAt: now(), updatedAt: now(), results: [], error: null };
       db.prepare('INSERT INTO jobs(id,request_key,fingerprint,document) VALUES (?,?,?,?)').run(job.id, args.idempotencyKey, fingerprint, JSON.stringify(job));
       db.prepare('INSERT INTO requests(request_key,job_id,fingerprint) VALUES (?,?,?)').run(args.idempotencyKey, job.id, fingerprint);
       active++;
-      const work = Promise.resolve().then(() => discovery(args)).then(discovered => {
+      const work = Promise.resolve().then(() => discovery(args, { isSourceExcluded: sourceUrl => isInputExcluded(db, { input: args.input, sourceUrl }) })).then(discovered => {
         const results = Array.isArray(discovered) ? discovered : discovered.results;
         if (!Array.isArray(discovered) && discovered.coverage) job.coverage = discovered.coverage;
         job.results = results.map(result => ({ ...result, review: isSuppressed(result.email) ? 'suppressed' : 'pending' }));

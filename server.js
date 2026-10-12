@@ -12,7 +12,8 @@ import { setupSourcePolicy, syncSourceExclusions, isProfileExcluded } from './pa
 const root = dirname(fileURLToPath(import.meta.url));
 
 export function createPlatform({ dataDir = join(root, 'data'), discovery, liveConfig = dataDir === join(root, 'data') ? readLiveConfig(root) : {}, sources = createLiveSources(liveConfig) } = {}) {
-  return createContactApp({ dataDir, discovery, isJobExcluded: (db, job) => isProfileExcluded(db, { ...job.input, profileUrls: [...(job.profileUrls || []), job.sourceUrl].filter(Boolean) }), configure: db => { setupWorkspace(db); setupSourcePolicy(db); setupEvidence(db); }, extraRoutes: async (request, response, url, context) => {
+  const researchExcluded = (db, job) => isProfileExcluded(db, { ...job.input, profileUrls: [...(job.profileUrls || []), job.sourceUrl, ...(job.supplementalSourceUrls || []), ...(job.coverage?.pages || []).map(page => page.url), ...(job.results || []).flatMap(result => (result.sources || []).map(source => source.url))].filter(Boolean) });
+  return createContactApp({ dataDir, discovery, isJobExcluded: researchExcluded, isInputExcluded: researchExcluded, configure: db => { setupWorkspace(db); setupSourcePolicy(db); setupEvidence(db); }, extraRoutes: async (request, response, url, context) => {
     if (url.pathname.startsWith('/api/') && !['/api/sources/status', '/api/projects', '/api/integrations/status'].includes(url.pathname)) {
       // Sticky exclusions are copied only into this platform. A failed configured
       // feed blocks actions instead of claiming the source has no exclusions.
@@ -60,6 +61,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (!existsSync(join(root, 'public/index.html'))) throw new Error('The platform interface is missing. Restore the source files before starting.');
   const app = createPlatform();
   app.server.on('error', error => { console.error(error.code === 'EADDRINUSE' ? `Port ${port} is already in use. Open the existing workspace.` : 'The platform could not start.'); process.exitCode = 1; });
-  app.server.listen(port, '127.0.0.1', () => console.log(`Talent Platform v0.2.0: http://127.0.0.1:${port}`));
+  app.server.listen(port, '127.0.0.1', () => console.log(`Talent Platform v0.3.0: http://127.0.0.1:${port}`));
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0); });
 }

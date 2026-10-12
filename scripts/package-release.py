@@ -12,7 +12,7 @@ destination.parent.mkdir(exist_ok=True)
 files = ['package.json', 'server.js', 'LICENSE', 'CONTRIBUTING.md', 'THIRD_PARTY.md', 'AGENTS.md', 'start.command', '.gitignore']
 for directory in ['packages', 'public', 'test', 'bridges', 'apps/contact-finder', '.github']:
     files.extend(str(path.relative_to(root)) for path in (root / directory).rglob('*') if path.is_file() and not any(part in {'data', 'node_modules', '__pycache__'} for part in path.parts))
-files.extend(['scripts/start-evidence-reader.sh', 'test/requirements-reader.txt', 'docs/LIVE_SOURCES.md', 'integrations/live-sources.example.json', 'scripts/doctor.js', 'scripts/consolidate-contacts.js', 'scripts/package-release.py', 'docs/ROADMAP.md', 'research/OPEN_SOURCE_FOUNDATIONS.md', 'research/COMPETITIVE_LANDSCAPE.md', 'research/CALYFLOW_AGENTS.md', 'research/sources.json'])
+files.extend(['scripts/start-evidence-reader.sh', 'test/requirements-reader.txt', 'docs/LIVE_SOURCES.md', 'docs/PUBLIC_EMAIL_WORKFLOW.md', 'integrations/live-sources.example.json', 'scripts/doctor.js', 'scripts/consolidate-contacts.js', 'scripts/package-release.py', 'docs/ROADMAP.md', 'research/OPEN_SOURCE_FOUNDATIONS.md', 'research/COMPETITIVE_LANDSCAPE.md', 'research/CALYFLOW_AGENTS.md', 'research/sources.json'])
 
 readme = (root / 'README.md').read_text()
 catalog = {'kind': 'talent-platform.source-projects', 'version': 1, 'projects': []}

@@ -58,6 +58,14 @@ const post = (path, body) => json(path, { method: 'POST', body: JSON.stringify(b
 function initials(name) { return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase(); }
 function counted(count, singular, plural = `${singular}s`) { return `${count} ${count === 1 ? singular : plural}`; }
 function jobName(job) { return job.input?.name || job.input?.company || job.input?.domain || 'Contact research'; }
+function associationState(contact) {
+  if (contact.associationEvidence?.state === 'name_near_email' || (contact.sources || []).some(source => source.associationEvidence?.state === 'name_near_email')) return 'name_near_email';
+  if (contact.associationEvidence?.state === 'not_located' || (contact.sources || []).some(source => source.associationEvidence?.state === 'not_located')) return 'not_located';
+  return 'not_assessed';
+}
+function quoteLabel(kind) {
+  return ({ html_email_link: 'HTML email link observation · not a verbatim passage', normalized_page_excerpt: 'Normalized page excerpt · not verbatim' })[kind] || (kind ? stageLabel(kind) : 'Quote kind not recorded in this saved search');
+}
 function statusLabel(status) { return ({ complete: 'Research complete', no_result: 'No email found', running: 'Searching', error: 'Needs attention', interrupted: 'Interrupted', approved: 'Confirmed match', pending: 'Needs review', suppressed: 'Excluded' })[status] || stageLabel(status); }
 function projectStatus(status) { return ({ cataloged_source_only: 'Source cataloged', workspace_subset_import_adapter: 'Subset import ready', projection_import_adapter: 'Projection import ready', source_snapshot_incorporated: 'Contact engine included', workflow_cataloged_no_runtime: 'Workflow cataloged', historical_empty_context: 'Historical context' })[status] || stageLabel(status); }
 function pill(value, label) { return el('span', `status-pill ${value}`, label || statusLabel(value)); }
@@ -91,7 +99,7 @@ function renderMetrics() {
   const contacts = state.jobs.flatMap(job => job.results || []);
   $('#metric-candidates').textContent = state.workspace.candidates.length;
   $('#metric-roles').textContent = state.workspace.roles.filter(role => role.status === 'open').length;
-  $('#metric-review').textContent = contacts.filter(contact => contact.review === 'pending').length;
+  $('#metric-review').textContent = new Set(contacts.filter(contact => contact.review === 'pending' && associationState(contact) === 'name_near_email').map(contact => contact.email)).size;
   $('#metric-confirmed').textContent = new Set(contacts.filter(contact => contact.review === 'approved').map(contact => contact.email)).size;
   $('#nav-candidates').textContent = state.workspace.candidates.length;
   $('#nav-roles').textContent = state.workspace.roles.length;
@@ -106,7 +114,7 @@ function renderHistory() {
     row.setAttribute('aria-pressed', String(state.selectedJob === job.id));
     row.append(el('span', 'avatar', initials(jobName(job))));
     const copy = el('span', 'history-copy');
-    copy.append(el('span', 'history-title', jobName(job)), el('span', 'history-meta', `${job.mode === 'website' ? 'Website' : job.mode === 'paste' ? 'Pasted text' : 'Single page'} · ${job.status === 'running' || job.status === 'error' || job.status === 'interrupted' ? statusLabel(job.status) : counted(job.results?.length || 0, 'email')}`));
+    copy.append(el('span', 'history-title', jobName(job)), el('span', 'history-meta', `${job.mode === 'website' ? 'Website' : job.mode === 'paste' ? 'Pasted text' : 'Single page'} · ${job.status === 'running' || job.status === 'error' || job.status === 'interrupted' ? statusLabel(job.status) : counted(job.results?.length || 0, 'address observation')}`));
     row.append(copy, el('span', `status-dot ${job.status}`)); list.append(row);
   }
 }
@@ -115,12 +123,21 @@ function coveragePanel(coverage) {
   const pages = coverage.pages || [];
   const read = pages.filter(page => page.status === 'read').length;
   details.append(el('summary', '', `Pages checked · ${read} read of ${counted(pages.length, 'attempt')}`));
+  if (coverage.sourceSelection === 'explicit_public_sources') {
+    const scope = el('div','selected-source-scope');
+    scope.append(el('strong','','Selected public sources'),el('p','field-help',`Explicitly selected pages share the ${coverage.maxPages || 5}-page, 45-second limit with this search. Coverage is bounded.`));
+    for(const url of coverage.selectedSourceUrls || []) scope.append(safeLink(url));
+    details.append(scope);
+  }
   for (const page of pages) {
     const row = el('div', 'coverage-row');
     const copy = ({ read: `${counted(page.emailCount || 0, 'published email')}`, duplicate: 'Already checked', blocked: 'Blocked by robots', error: 'Could not read' })[page.status] || stageLabel(page.status);
     row.append(safeLink(page.url), el('span', '', copy));
     if (page.error) row.title = page.error;
     details.append(row);
+    if(page.observedAt) details.append(el('p','source-lineage',`Observed ${page.observedAt}`));
+    if(page.contentHash) details.append(el('p','source-lineage',`Page SHA256 ${page.contentHash}${Number.isFinite(page.contentBytes) ? ` · ${page.contentBytes} bytes` : ''}`));
+    if(page.reportedPublicationDate) details.append(el('p','publication-note',`Reported publication date ${page.reportedPublicationDate}. Publication correspondence does not establish a current inbox.`));
   }
   for (const warning of coverage.warnings || []) details.append(el('p', 'coverage-warning', warning));
   if (coverage.stopReason === 'max_pages') details.append(el('p', 'coverage-warning', 'Stopped at the page limit. This is a bounded search of relevant links.'));
@@ -142,6 +159,16 @@ function contactCard(contact, jobId) {
   const top = el('div', 'contact-top');
   top.append(el('h3', 'email-heading', contact.email), pill(contact.review || 'pending')); card.append(top);
   card.append(el('p', 'contact-tagline', (contact.flags || []).includes('shared_mailbox') ? 'Published address · shared mailbox indicator' : 'Published address · source observation'));
+  const association = associationState(contact);
+  if(association === 'name_near_email') {
+    const observation = contact.associationEvidence?.state === 'name_near_email' ? contact.associationEvidence : (contact.sources || []).find(source=>source.associationEvidence?.state === 'name_near_email')?.associationEvidence;
+    const note = el('div','association-note');
+    note.append(el('strong','','Name appears near this address · review required'),el('p','',`${observation?.name || 'The selected name'} appears near the address in extracted source text. Text proximity does not establish ownership or current reachability.`));
+    if(observation?.quote) note.append(el('blockquote','',observation.quote),el('p','source-lineage',quoteLabel(observation.quoteKind)));
+    card.append(note);
+  } else if(association === 'not_located') {
+    card.append(el('p','association-note unsupported','No supporting name was located near this address. It may belong to the institution, a department, or another person. Inspect the source before recording an association.'));
+  } else card.append(el('p','association-note historical','Association evidence not assessed in this saved search. Its existing review history is preserved.'));
   const facts = el('div', 'contact-facts');
   const person = el('div'); person.append(el('span', '', 'Person association'), el('strong', '', contact.review === 'approved' ? 'Recruiter confirmed' : contact.review === 'suppressed' ? 'Excluded from use' : 'Requires human review'));
   const delivery = el('div'); delivery.append(el('span', '', 'Email deliverability'), el('strong', '', stageLabel(contact.deliverability || 'unknown')));
@@ -149,15 +176,18 @@ function contactCard(contact, jobId) {
   for (const source of contact.sources || []) {
     const sourceNode = el('div', 'source-entry');
     sourceNode.append(source.url ? safeLink(source.url) : el('span', '', source.type === 'pasted_text' ? 'Recruiter-pasted public text' : 'Source text'));
-    if (source.observedAt) sourceNode.append(el('div', 'source-time', `Observed ${date(source.observedAt)}`));
+    if (source.observedAt) sourceNode.append(el('div', 'source-time', `Observed ${source.observedAt}`));
+    if(source.sourcePurpose) sourceNode.append(el('p','source-lineage',`Source purpose · ${stageLabel(source.sourcePurpose)}`));
+    if(source.reportedPublicationDate) sourceNode.append(el('p','publication-note',`Reported publication date ${source.reportedPublicationDate}. This correspondence address may be dated; a current inbox is not established.`));
+    if(source.contentHash) sourceNode.append(el('p','source-lineage',`Page SHA256 ${source.contentHash}${Number.isFinite(source.contentBytes) ? ` · ${source.contentBytes} bytes` : ''}`));
     const context = source.context || source.quote || contact.context;
-    if (context) sourceNode.append(el('blockquote', '', context));
+    if (context) sourceNode.append(el('blockquote', '', context),el('p','source-lineage',quoteLabel(source.quoteKind || contact.quoteKind)));
     card.append(sourceNode);
   }
   if (!contact.sources?.length && contact.context) card.append(el('blockquote', 'source-entry', contact.context));
   const controls = el('div', 'contact-actions');
   if (contact.review === 'pending') {
-    const approve = action('Confirm person match', 'button primary small', () => reviewContact(jobId, contact.id, 'approved', approve));
+    const approve = action(association === 'not_located' ? 'Confirm association after inspecting source' : 'Confirm person match', 'button primary small', () => reviewContact(jobId, contact.id, 'approved', approve));
     controls.append(approve);
   } else if (contact.review === 'approved') {
     const pending = action('Return to review', 'button secondary small', () => reviewContact(jobId, contact.id, 'pending', pending)); controls.append(pending);
@@ -177,7 +207,7 @@ function stateMessage(title, message, loading = false, isError = false) {
 function keepPanel(job) {
   const box = el('div', 'keep-bar');
   const existing = state.workspace.candidates.find(candidate => candidate.sourceProject === 'lead-finder' && candidate.sourceId === job.id);
-  box.append(el('p', '', existing ? 'This prospect is saved. You can also add them to a role. Contact review remains attached to the original research.' : 'Keep the person and their research in your library. Published email matches remain pending until you review them.'));
+  box.append(el('p', '', existing ? 'This prospect is saved. You can also add them to a role. Contact review remains attached to the original research.' : 'Keep the person and their research in your library. Published address observations remain pending until you review their association with this person.'));
   const controls = el('div', 'keep-controls'); const roleSelect = el('select');
   roleSelect.setAttribute('aria-label', 'Role for this prospect'); roleOptions(roleSelect, 'Candidate library only', $('#research-role').value);
   const keep = action(existing ? 'Keep to role' : 'Keep prospect', 'button primary', async () => {
@@ -199,15 +229,36 @@ function renderResearch() {
     const node = el('div', 'empty-state'); node.append(el('div', 'empty-art', '⌕'), el('h3', '', 'Your next prospect starts here.'), el('p', '', 'Enter a person and website. Published contacts, source context, and coverage will appear together.'));
     const path = el('div', 'empty-path'); for (const text of ['Research', '→', 'Review', '→', 'Keep']) path.append(el('span', '', text)); node.append(path); container.append(node); return;
   }
-  $('#result-count').textContent = `${job.results?.length || 0} found`;
+  $('#result-count').textContent = counted(job.results?.length || 0,'address observation');
   const summary = el('div', 'result-summary'); const identity = el('div'); identity.append(el('h3', '', jobName(job)), el('p', '', [job.input?.company || job.input?.domain, date(job.createdAt)].filter(Boolean).join(' · '))); summary.append(identity, pill(job.status)); container.append(summary);
   if (job.coverage) container.append(coveragePanel(job.coverage));
   if (job.status === 'running') { container.append(stateMessage('Reading public sources…', 'Checking the starting page and relevant links. You can continue working while the research completes.', true)); return; }
   if (job.status === 'error' || job.status === 'interrupted') {
     container.append(stateMessage('This research needs attention.', job.error || 'The search was interrupted before it finished. Start another search to retry this source.', false, true)); return;
   }
-  if (!job.results?.length) container.append(stateMessage('No published email found.', 'The pages read did not contain an extractable email. You can still keep this prospect and their research record.'));
-  for (const contact of job.results || []) container.append(contactCard(contact, job.id));
+  const contacts = job.results || [];
+  if (!contacts.length) container.append(stateMessage('No published email found.', 'The pages read did not contain an extractable email. You can still keep this prospect and their research record.'));
+  const nearName = contacts.filter(contact=>associationState(contact) === 'name_near_email');
+  const unsupported = contacts.filter(contact=>associationState(contact) === 'not_located');
+  const historical = contacts.filter(contact=>associationState(contact) === 'not_assessed');
+  if(nearName.length) {
+    const section=el('section','association-results'); section.append(el('h3','association-section-heading','Name appears near this address · review required'),el('p','association-section-help','These are textual observations awaiting human review. They are not confirmed person-email matches.'));
+    for(const contact of nearName) section.append(contactCard(contact,job.id)); container.append(section);
+  } else if(unsupported.length) container.append(stateMessage('No supporting name found near the published addresses.','The selected sources contained addresses, but did not provide textual support for associating them with this person. You can still keep the research and inspect other public sources.'));
+  if(unsupported.length) {
+    const other=el('details','other-addresses'); other.append(el('summary','',`Other published addresses · ${counted(unsupported.length,'observation')} · association not located`),el('p','field-help','Institutional and other addresses remain as source history. They are not counted as this person’s email matches.'));
+    for(const contact of unsupported) other.append(contactCard(contact,job.id)); container.append(other);
+  }
+  if(historical.length) {
+    const section=el('section','association-results historical-results'); section.append(el('h3','association-section-heading','Saved address observations'),el('p','association-section-help','Association evidence not assessed in this saved search. Existing review and exclusion history remains unchanged.'));
+    for(const contact of historical) section.append(contactCard(contact,job.id)); container.append(section);
+  }
+  if(job.mode === 'website') {
+    const reuse=action('Use this source selection again','text-button reuse-sources',()=>{
+      $('#person-name').value=job.input?.name || ''; $('#person-company').value=job.input?.company || ''; $('#person-domain').value=job.input?.domain || ''; $('#person-profile').value=job.input?.linkedinUrl || ''; $('#source-url').value=job.sourceUrl || '';
+      $('#research-form').elements.mode.value='website'; $('#supplemental-source-urls').value=(job.supplementalSourceUrls || []).join('\n'); updateResearchMode(); updateSearchLinks(); $('#supplemental-fields').open=!!job.supplementalSourceUrls?.length; (job.supplementalSourceUrls?.length ? $('#supplemental-source-urls') : $('#source-url')).focus();
+    }); container.append(reuse);
+  }
   container.append(keepPanel(job));
 }
 function updateResearchMode() {
@@ -215,9 +266,10 @@ function updateResearchMode() {
   $('#url-fields').hidden = mode === 'paste'; $('#paste-fields').hidden = mode !== 'paste';
   $('#source-url').disabled = mode === 'paste'; $('#source-url').required = mode === 'public';
   $('#source-text').disabled = mode !== 'paste'; $('#source-text').required = mode === 'paste'; $('#paste-url').disabled = mode !== 'paste';
+  $('#supplemental-fields').hidden=mode !== 'website'; $('#supplemental-source-urls').disabled=mode !== 'website';
   $('#source-url-label').replaceChildren(el('span', '', mode === 'public' ? 'Public page URL' : 'Starting page'));
   if (mode === 'website') $('#source-url-label').append(document.createTextNode(' '), el('span', 'optional', 'optional with a domain'));
-  $('#source-url-help').textContent = mode === 'website' ? 'Follows relevant public links on this website, up to 5 pages. Each finding keeps its source.' : 'Reads this one public professional page. A team, bio, or contact page is a useful starting point.';
+  $('#source-url-help').textContent = mode === 'website' ? 'Reads this starting page and any additional public sources you select before other relevant links. The whole search shares a 5-page, 45-second limit.' : 'Reads this one public professional page. A team, bio, or contact page is a useful starting point.';
   $('#research-submit').textContent = state.submitting ? 'Starting research…' : mode === 'website' ? 'Search website ↗' : mode === 'public' ? 'Read public page ↗' : 'Read source text ↗';
 }
 function updateSearchLinks() {
@@ -677,6 +729,15 @@ $('#research-form').addEventListener('submit', async event => {
   const sourceUrl = mode === 'paste' ? $('#paste-url').value.trim() : $('#source-url').value.trim();
   if (mode === 'website' && !sourceUrl && !input.domain) { error('#research-error', 'Enter a website domain or starting page.'); $('#person-domain').focus(); return; }
   const request = { mode, input, sourceUrl, sourceText: mode === 'paste' ? $('#source-text').value : '', idempotencyKey: crypto.randomUUID() };
+  if(mode === 'website') {
+    const selected=$('#supplemental-source-urls').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean);
+    if(selected.length > 4) { error('#research-error','Choose at most 4 additional public source URLs, one per line.'); $('#supplemental-source-urls').focus(); return; }
+    for(const value of selected) {
+      let url; try { url=new URL(value); } catch { error('#research-error','Each additional source needs a complete http:// or https:// public page URL.'); $('#supplemental-source-urls').focus(); return; }
+      if(value.length > 2000 || !['http:','https:'].includes(url.protocol) || url.username || url.password) { error('#research-error','Use public http:// or https:// pages without credentials, up to 2,000 characters per URL.'); $('#supplemental-source-urls').focus(); return; }
+    }
+    if(selected.length) request.supplementalSourceUrls=selected;
+  }
   state.submitting = true; $('#research-submit').disabled = true; updateResearchMode();
   try { const result = await post('/api/discover', request); upsertJob(result.job); state.selectedJob = result.job.id; renderAll(); pollJobs(); }
   catch (cause) { error('#research-error', cause.message); }

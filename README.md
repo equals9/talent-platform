@@ -15,7 +15,11 @@ npm start
 Open http://127.0.0.1:4320. Keep the server running. Create a role, research a
 name with a known professional website domain, review the source evidence,
 explicitly keep a prospect, and export the role pipeline. Contact approval
-and keeping a person are separate; deliverability stays unknown. Exclusions
+and keeping a person are separate; deliverability stays unknown. Website research
+can check up to four additional public pages you select, prioritizing them before
+other links within one five-page/45-second search. Name proximity is a review
+hint; unrelated page addresses remain in a separate source-history group.
+See [public email workflow](docs/PUBLIC_EMAIL_WORKFLOW.md). Exclusions
 apply globally to future discoveries and exports. `/contacts` provides the
 original contact review workspace.
 

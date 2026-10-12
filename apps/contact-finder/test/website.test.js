@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { createHash } from 'node:crypto';
 import { contactLinks, discoverWebsite } from '../website-discovery.js';
 import { safeFetch } from '../discovery.js';
 
@@ -263,4 +264,274 @@ test('production fetch boundary consults robots again before following a same-si
   assert.deepEqual(results, []);
   assert.equal(coverage.pages[0].status, 'blocked');
   assert.match(coverage.pages[0].error, /robots/);
+});
+
+test('explicit public supplements run before generic links and preserve independent named source observations', async () => {
+  const faculty = 'https://faculty.clinic.org/people/jane-doe';
+  const journal = 'https://journal.org/article/jane-doe';
+  const facultyText = '<h1>Jane Doe, physician</h1><p>Public professional email: jane@clinic.org</p>';
+  const journalText = '<h1>Research article</h1><p>Correspondence to Jane Doe: JANE@clinic.org</p>';
+  const h = websiteFixture({
+    [`${origin}/`]: '<h1>Clinical directory</h1><p>Office: info@clinic.org</p><a href="/contact">Contact</a>',
+    [faculty]: facultyText,
+    [journal]: journalText,
+    [`${origin}/contact`]: '<p>Department office: office@clinic.org</p>',
+  });
+  const { results, coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [faculty, journal], input: { name: 'Jane Doe' } }, h.options);
+  assert.deepEqual(h.calls.filter(url => !url.endsWith('/robots.txt')), [`${origin}/`, faculty, journal, `${origin}/contact`]);
+  assert.deepEqual(coverage.selectedSourceUrls, [`${origin}/`, faculty, journal]);
+  assert.equal(coverage.sourceSelection, 'explicit_public_sources');
+  const email = results.find(row => row.email === 'jane@clinic.org');
+  assert.ok(email, 'The selected faculty and publisher observations must be read, not omitted');
+  assert.deepEqual(email.sources.map(source => source.url), [faculty, journal]);
+  for (const [index, text] of [facultyText, journalText].entries()) {
+    const source = email.sources[index];
+    assert.match(source.context, /Jane Doe/);
+    assert.equal(source.contentHash, createHash('sha256').update(text).digest('hex'));
+    assert.equal(source.contentBytes, Buffer.byteLength(text));
+    assert.ok(Date.parse(source.observedAt));
+    assert.equal(coverage.pages.find(page => page.url === source.url).contentHash, source.contentHash);
+  }
+  for (const row of results) {
+    assert.equal(row.ownership, 'unreviewed');
+    assert.equal(row.review, 'pending');
+    assert.equal(row.deliverability, 'unknown');
+    assert.equal(row.verificationAt, null);
+  }
+  assert.ok(results.some(row => row.email === 'info@clinic.org'), 'Unrelated source contacts stay observations, not name matches');
+});
+
+test('all selected supplements validate before fetching even the valid primary page', async () => {
+  const invalidSets = [
+    ['https://faculty.clinic.org/jane', 'https://faculty.clinic.org/profile?id=10'],
+    ['https://faculty.clinic.org/jane', 'https://user:password@journal.org/contact'],
+    ['https://faculty.clinic.org/jane', 'https://linkedin.com/in/jane'],
+    ['https://faculty.clinic.org/jane', 'http://127.0.0.1/contact'],
+    ['https://faculty.clinic.org/jane', 'http://[::ffff:127.0.0.1]/contact'],
+    ['https://faculty.clinic.org/jane', 'https://journal.org:8080/contact'],
+    ['https://faculty.clinic.org/jane', 'file:///etc/passwd'],
+    ['https://faculty.clinic.org/jane', ''],
+    ['https://faculty.clinic.org/jane', 12],
+    Array.from({ length: 5 }, (_, index) => `https://faculty.clinic.org/people/${index}`),
+    'https://faculty.clinic.org/jane',
+    null,
+  ];
+  for (const supplementalSourceUrls of invalidSets) {
+    const h = websiteFixture({ '/': 'info@clinic.org' });
+    await assert.rejects(discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls }, h.options));
+    assert.deepEqual(h.calls, []);
+    assert.deepEqual(h.attempts, []);
+  }
+});
+
+test('empty supplements preserve primary-only navigation and duplicate selected URLs are read once', async () => {
+  const faculty = 'https://faculty.clinic.org/jane';
+  const h = websiteFixture({ '/': '<p>No published email.</p>', [faculty]: '<p>Jane Doe: jane@clinic.org</p>' });
+  const { coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [`${origin}/#same`, faculty, `${faculty}#same`], input: { name: 'Jane Doe' } }, h.options);
+  assert.deepEqual(coverage.selectedSourceUrls, [`${origin}/`, faculty]);
+  assert.deepEqual(h.calls.filter(url => !url.endsWith('/robots.txt')), [`${origin}/`, faculty]);
+  const empty = websiteFixture({ '/': '<a href="/contact">Contact</a>', '/contact': 'office@clinic.org' });
+  const result = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [] }, empty.options);
+  assert.deepEqual(empty.calls, [`${origin}/robots.txt`, `${origin}/`, `${origin}/contact`]);
+  assert.equal(result.coverage.sourceSelection, undefined);
+});
+
+test('five selected seeds share one page budget and do not each receive five linked pages', async () => {
+  const seeds = [0, 1, 2, 3].map(index => `https://faculty${index}.clinic.org/people/jane`);
+  const pages = { [`${origin}/`]: '<a href="/contact">Contact</a>' };
+  for (const url of seeds) pages[url] = '<a href="/contact">Contact</a><p>Jane Doe</p>';
+  const h = websiteFixture(pages);
+  const { coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: seeds }, h.options);
+  assert.deepEqual(h.calls.filter(url => !url.endsWith('/robots.txt')), [`${origin}/`, ...seeds]);
+  assert.equal(coverage.pages.length, 5);
+  assert.equal(coverage.stopReason, 'max_pages');
+  assert.ok(coverage.warnings.some(warning => /page or time limit/.test(warning)));
+});
+
+test('supplements share the original total duration and cannot reset it per selected source', async () => {
+  const faculty = 'https://faculty.clinic.org/jane';
+  const h = websiteFixture({ '/': 'No contact', [faculty]: 'Jane Doe: jane@clinic.org' }, { elapsedPerPage: 45_000 });
+  const { results, coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [faculty] }, h.options);
+  assert.deepEqual(results, []);
+  assert.equal(coverage.stopReason, 'time_limit');
+  assert.equal(coverage.pages.length, 1);
+  assert.equal(h.attempts.includes(faculty), false);
+});
+
+test('each selected origin has a separate robots policy and cannot authorize another source', async () => {
+  const faculty = 'https://faculty.clinic.org/people/jane';
+  const journal = 'https://journal.org/paper';
+  const h = websiteFixture({ '/': 'No email', [faculty]: 'Do not read jane@clinic.org', [journal]: 'Jane Doe: jane@clinic.org' }, {
+    robots: url => url.origin === 'https://faculty.clinic.org' ? 'User-agent: *\nDisallow: /people/' : '',
+  });
+  const { results, coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [faculty, journal] }, h.options);
+  assert.equal(h.calls.includes(faculty), false);
+  assert.equal(coverage.pages.find(page => page.url === faculty).status, 'blocked');
+  assert.deepEqual(coverage.robots.map(row => row.url), [`${origin}/robots.txt`, 'https://faculty.clinic.org/robots.txt', 'https://journal.org/robots.txt']);
+  assert.deepEqual(results[0].sources.map(source => source.url), [journal]);
+});
+
+test('each supplemental seed keeps its own origin for related links and rejects unselected sibling sources', async () => {
+  const faculty = 'https://faculty.clinic.org/people/jane';
+  const h = websiteFixture({
+    '/': '<a href="https://secret.clinic.org/contact">Contact</a>',
+    [faculty]: '<a href="/contact">Contact</a><a href="https://secret.clinic.org/people/jane">Jane Doe</a>',
+    'https://faculty.clinic.org/contact': 'Jane Doe: jane@clinic.org',
+  });
+  const { results } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [faculty], input: { name: 'Jane Doe' } }, h.options);
+  assert.deepEqual(h.calls.filter(url => !url.endsWith('/robots.txt')), [`${origin}/`, faculty, 'https://faculty.clinic.org/contact']);
+  assert.equal(h.attempts.some(url => url.startsWith('https://secret.clinic.org')), false);
+  assert.equal(results[0].sources[0].url, 'https://faculty.clinic.org/contact');
+});
+
+test('duplicate selected origins fetch robots once while preserving separate page observations', async () => {
+  const pages = { '/': 'No email', '/people/jane': 'Jane Doe: jane@clinic.org', '/team/jane': 'Jane Doe: jane@clinic.org' };
+  const h = websiteFixture(pages);
+  const { results, coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [`${origin}/people/jane`, `${origin}/team/jane`] }, h.options);
+  assert.equal(h.calls.filter(url => url === `${origin}/robots.txt`).length, 1);
+  assert.equal(coverage.robots.length, 1);
+  assert.equal(results[0].sources.length, 2);
+});
+
+test('supplemental adapter output cannot escape to another explicitly selected origin', async () => {
+  const faculty = 'https://faculty.clinic.org/people/jane';
+  const journal = 'https://journal.org/paper';
+  const h = websiteFixture({ '/': 'No email', [faculty]: { url: journal, text: 'Injected jane@clinic.org' }, [journal]: 'No email' });
+  const { results, coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [faculty, journal] }, h.options);
+  assert.deepEqual(results, []);
+  assert.equal(coverage.pages.find(page => page.url === faculty).status, 'blocked');
+  assert.match(coverage.pages.find(page => page.url === faculty).error, /blocked/);
+});
+
+test('unavailable supplemental robots and off-origin robots adapter output fail closed', async () => {
+  const faculty = 'https://faculty.clinic.org/people/jane';
+  const unavailable = websiteFixture({ '/': 'No email', [faculty]: 'Jane Doe: jane@clinic.org' }, {
+    robots: url => url.origin === 'https://faculty.clinic.org' ? new Error('HTTP 503') : '',
+  });
+  const blockedResult = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [faculty] }, unavailable.options);
+  assert.equal(unavailable.calls.includes(faculty), false);
+  assert.equal(blockedResult.coverage.pages[1].status, 'blocked');
+  assert.deepEqual(blockedResult.results, []);
+
+  for (const redirectedRobots of ['https://unselected.org/robots.txt', 'https://faculty.clinic.org/robots.txt?token=private']) {
+    const h = websiteFixture({ '/': 'No email', [faculty]: 'Jane Doe: jane@clinic.org' });
+    const originalFetch = h.options.fetchPage;
+    h.options.fetchPage = async (value, options) => value === 'https://faculty.clinic.org/robots.txt'
+      ? { url: redirectedRobots, text: '', contentType: 'text/plain' }
+      : originalFetch(value, options);
+    const { results, coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [faculty] }, h.options);
+    assert.deepEqual(results, []);
+    assert.equal(h.calls.includes(faculty), false);
+    assert.equal(coverage.pages[1].status, 'blocked');
+  }
+});
+
+function nativeWebsiteFixture(routes, addresses = () => [{ address: '93.184.215.14', family: 4 }]) {
+  const requests = [];
+  const resolutions = [];
+  const requestImpl = (url, _options, callback) => {
+    const request = new EventEmitter();
+    request.destroy = () => {};
+    request.end = () => queueMicrotask(() => {
+      requests.push(url.href);
+      const page = routes[url.href];
+      assert.ok(page, `Denied page must not be requested: ${url.href}`);
+      const response = new EventEmitter();
+      response.destroy = () => {};
+      response.statusCode = page.status ?? 200;
+      response.headers = { 'content-type': 'text/plain', ...(page.location ? { location: page.location } : {}) };
+      callback(response);
+      if (!page.status) { response.emit('data', Buffer.from(page.text)); response.emit('end'); }
+    });
+    return request;
+  };
+  return { requests, resolutions, options: {
+    wait: async () => {},
+    fetchPage: (url, options) => safeFetch(url, {
+      ...options, requestImpl, lookupImpl: async hostname => { resolutions.push(hostname); return addresses(hostname); },
+    }),
+  } };
+}
+
+test('native supplemental requests enforce robots on redirects and reject private DNS without contacting it', async () => {
+  const faculty = 'https://faculty.clinic.org/people/jane';
+  const hidden = 'https://hidden.clinic.org/people/jane';
+  const h = nativeWebsiteFixture({
+    [`${origin}/robots.txt`]: { text: '' }, [`${origin}/`]: { text: 'No published email' },
+    'https://faculty.clinic.org/robots.txt': { text: 'User-agent: *\nDisallow: /private/' },
+    [faculty]: { status: 302, location: '/private/contact' },
+  }, hostname => [{ address: hostname === 'hidden.clinic.org' ? '10.0.0.2' : '93.184.215.14', family: 4 }]);
+  const { results, coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [faculty, hidden] }, h.options);
+  assert.deepEqual(results, []);
+  assert.deepEqual(h.requests, [`${origin}/robots.txt`, `${origin}/`, 'https://faculty.clinic.org/robots.txt', faculty]);
+  assert.match(coverage.pages.find(page => page.url === faculty).error, /robots/);
+  assert.equal(coverage.pages.find(page => page.url === hidden).status, 'blocked');
+  assert.equal(h.requests.some(url => url.startsWith('https://hidden.clinic.org') || url.includes('/private/')), false);
+});
+
+test('native supplemental redirect cannot borrow another explicitly selected origin authorization', async () => {
+  const faculty = 'https://faculty.clinic.org/people/jane';
+  const journal = 'https://journal.org/paper';
+  const h = nativeWebsiteFixture({
+    [`${origin}/robots.txt`]: { text: '' }, [`${origin}/`]: { text: 'No published email' },
+    'https://faculty.clinic.org/robots.txt': { text: '' },
+    [faculty]: { status: 302, location: journal },
+    'https://journal.org/robots.txt': { text: '' }, [journal]: { text: 'Jane Doe: jane@clinic.org' },
+  });
+  const { results, coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [faculty, journal] }, h.options);
+  assert.equal(coverage.pages.find(page => page.url === faculty).status, 'blocked');
+  assert.match(coverage.pages.find(page => page.url === faculty).error, /left.*blocked/);
+  assert.deepEqual(h.requests.slice(0, 4), [`${origin}/robots.txt`, `${origin}/`, 'https://faculty.clinic.org/robots.txt', faculty]);
+  assert.deepEqual(h.requests.slice(4), ['https://journal.org/robots.txt', journal]);
+  assert.deepEqual(results[0].sources.map(source => source.url), [journal]);
+});
+
+test('later named evidence improves display while retaining the earlier unassociated observation and publication age', async () => {
+  const faculty = 'https://faculty.clinic.org/people/jane';
+  const journal = 'https://journal.org/paper';
+  const h = websiteFixture({
+    '/': '<p>General public address: jane@clinic.org</p>',
+    [faculty]: '<h1>Jane Doe, physician</h1><a href="mailto:jane@clinic.org">Professional email</a>',
+    [journal]: '<meta name="citation_publication_date" content="2023/11/16"><p>Correspondence to Jane Doe: jane@clinic.org</p>',
+  });
+  const { results, coverage } = await discoverWebsite({ sourceUrl: `${origin}/`, supplementalSourceUrls: [faculty, journal], input: { name: 'Jane Doe' } }, h.options);
+  assert.equal(results.length, 1);
+  const email = results[0];
+  assert.equal(email.sources.length, 3);
+  assert.equal(email.sources[0].associationEvidence.state, 'not_located');
+  assert.equal(email.sources[1].associationEvidence.state, 'name_near_email');
+  assert.equal(email.associationEvidence.state, 'name_near_email');
+  assert.match(email.context, /Jane Doe/);
+  assert.equal(email.flags.includes('person_context_not_located'), false);
+  assert.equal(email.sources[2].reportedPublicationDate, '2023-11-16');
+  assert.ok(email.sources[2].publicationDateSource);
+  assert.equal(coverage.pages.find(page => page.url === journal).reportedPublicationDate, '2023-11-16');
+  assert.ok(Date.parse(email.sources[2].observedAt));
+  assert.equal(email.ownership, 'unreviewed');
+  assert.equal(email.review, 'pending');
+  assert.equal(email.deliverability, 'unknown');
+  assert.equal(email.verificationAt, null);
+});
+
+test('workspace source exclusions block linked and redirected pages before their content request', async () => {
+  const h = websiteFixture({ '/': '<h1>Jane Doe</h1><a href="/contact">Contact</a>', '/contact': 'jane@clinic.org' });
+  h.options.isSourceExcluded = url => url === `${origin}/contact`;
+  const linked = await discoverWebsite({ sourceUrl: `${origin}/`, input: { name: 'Jane Doe' } }, h.options);
+  assert.equal(h.attempts.includes(`${origin}/contact`), false);
+  assert.equal(linked.results.length, 0);
+  assert.equal(linked.coverage.pages.find(page => page.url === `${origin}/contact`).status, 'blocked');
+  const requested = [];
+  const redirected = await discoverWebsite({ sourceUrl: `${origin}/old-profile` }, {
+    now: () => 1000, wait: async () => {}, isSourceExcluded: url => url === `${origin}/contact`,
+    fetchPage: async (value, options) => {
+      const url = new URL(value);
+      if (url.pathname === '/robots.txt') return { url: value, text: '', contentType: 'text/plain' };
+      await options.beforeRequest(url); requested.push(url.href);
+      await options.beforeRequest(new URL(`${origin}/contact`)); requested.push(`${origin}/contact`);
+      return { url: `${origin}/contact`, text: 'jane@clinic.org', contentType: 'text/html' };
+    },
+  });
+  assert.deepEqual(requested, [`${origin}/old-profile`]);
+  assert.equal(redirected.results.length, 0);
+  assert.equal(redirected.coverage.pages[0].status, 'blocked');
 });

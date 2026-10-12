@@ -61,7 +61,7 @@ export function csvCell(value) {
 
 const runDiscovery = args => args.mode === 'website' ? discoverWebsite(args) : discover(args);
 
-export function createApp({ dataDir = join(root, 'data'), discovery = runDiscovery, configure, extraRoutes } = {}) {
+export function createApp({ dataDir = join(root, 'data'), discovery = runDiscovery, configure, extraRoutes, isJobExcluded = () => false } = {}) {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   chmodSync(dataDir, 0o700);
   const dbFile = join(dataDir, 'contacts.sqlite');
@@ -81,7 +81,7 @@ export function createApp({ dataDir = join(root, 'data'), discovery = runDiscove
     return row ? JSON.parse(row.document) : null;
   };
   const isSuppressed = email => !!db.prepare('SELECT email FROM suppressed WHERE email = ?').get(email.toLowerCase());
-  const hydrated = job => job && ({ ...job, results: job.results.map(result => isSuppressed(result.email) ? { ...result, review: 'suppressed' } : result) });
+  const hydrated = job => job && ({ ...job, excluded: isJobExcluded(db, job), results: job.results.map(result => isSuppressed(result.email) || isJobExcluded(db, job) ? { ...result, review: 'suppressed' } : result) });
   const getJob = id => hydrated(getRaw(id));
   const save = job => db.prepare('UPDATE jobs SET document = ? WHERE id = ?').run(JSON.stringify(job), job.id);
   for (const { document } of db.prepare('SELECT document FROM jobs').all()) {
@@ -165,6 +165,7 @@ export function createApp({ dataDir = join(root, 'data'), discovery = runDiscove
       const result = job.results.find(item => item.id === body.resultId);
       if (!result) throw fail('Email not found in this search.', 404);
       if (body.review !== 'suppressed' && isSuppressed(result.email)) throw fail('This address is excluded from exports across all searches.', 409);
+      if (body.review !== 'suppressed' && isJobExcluded(db, job)) throw fail('This profile is excluded across the connected workspace.', 409);
       if (body.review === 'approved' && !job.input.name) throw fail('Enter the person’s name before confirming an email match. Run this search with a name first.');
       result.review = body.review;
       result.reviewedAt = now();
@@ -177,6 +178,7 @@ export function createApp({ dataDir = join(root, 'data'), discovery = runDiscove
       // Export all reviewed records, even when the history pane is capped at 200 searches.
       for (const { document } of db.prepare('SELECT document FROM jobs ORDER BY rowid DESC').all()) {
         const job = hydrated(JSON.parse(document));
+        if (job.excluded) continue;
         for (const result of job.results) {
           const key = result.email.toLowerCase();
           if (result.review !== 'approved' || result.deliverability === 'invalid' || seen.has(key)) continue;

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { csvCell } from '../apps/contact-finder/server.js';
+import { requireIncluded, isProfileExcluded, setupSourcePolicy } from './source-policy.js';
+import { evidenceLinks } from './source-workspace.js';
 
 const stamp = () => new Date().toISOString();
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
@@ -25,6 +27,7 @@ export function link(value) {
 }
 
 export function setupWorkspace(db) {
+  setupSourcePolicy(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS platform_roles(id TEXT PRIMARY KEY, document TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS platform_candidates(id TEXT PRIMARY KEY, origin_key TEXT UNIQUE, document TEXT NOT NULL);
@@ -56,6 +59,7 @@ export function createRole(db, input) {
 }
 
 export function createCandidate(db, input, provenance = null) {
+  requireIncluded(db, input);
   const candidate = {
     id: randomUUID(), name: string(input.name, 'Candidate name', 300, true), company: string(input.company, 'Company'), location: string(input.location, 'Location'), profileUrl: link(input.profileUrl),
     notes: string(input.notes, 'Recruiter notes', 10000), sourceProject: provenance?.sourceProject || 'recruiter', sourceId: provenance?.sourceId || null,
@@ -76,6 +80,7 @@ export function attachCandidate(db, { roleId, candidateId }) {
   candidateId = string(candidateId, 'Candidate ID', 100, true);
   if (!get(db, 'platform_roles', roleId)) throw fail('Role not found.', 404);
   if (!get(db, 'platform_candidates', candidateId)) throw fail('Candidate not found.', 404);
+  requireIncluded(db, get(db, 'platform_candidates', candidateId));
   const old = db.prepare('SELECT document FROM platform_memberships WHERE role_id=? AND candidate_id=?').get(roleId, candidateId);
   if (old) return JSON.parse(old.document);
   const membership = { roleId, candidateId, stage: 'researched', createdAt: stamp(), updatedAt: stamp() };
@@ -88,6 +93,7 @@ export function changeStage(db, { roleId, candidateId, stage }) {
   roleId = string(roleId, 'Role ID', 100, true);
   candidateId = string(candidateId, 'Candidate ID', 100, true);
   if (!STAGES.includes(stage)) throw fail('Choose a supported pipeline stage.');
+  requireIncluded(db, get(db, 'platform_candidates', candidateId) || {});
   const row = db.prepare('SELECT document FROM platform_memberships WHERE role_id=? AND candidate_id=?').get(roleId, candidateId);
   if (!row) throw fail('This candidate is not in that role.', 404);
   const membership = JSON.parse(row.document);
@@ -100,16 +106,16 @@ export function changeStage(db, { roleId, candidateId, stage }) {
 }
 
 export function contactsForCandidate(db, candidate, context) {
-  if (candidate.provenance?.kind !== 'contact_research') return [];
-  const job = context.getJob(candidate.sourceId);
+  if (isProfileExcluded(db, candidate)) return [];
+  const ids = [...new Set([...(candidate.researchJobIds || []), ...(candidate.provenance?.kind === 'contact_research' ? [candidate.sourceId] : [])])];
   // Keeping a prospect is independent from confirming any address on its source pages.
-  return job?.results || [];
+  return ids.flatMap(id => (context.getJob(id)?.results || []).map(result => ({ ...result, jobId: id })));
 }
 
 export async function workspaceRoutes(request, response, url, context) {
   const { db, send, bodyJson } = context;
   if (url.pathname === '/api/workspace' && request.method === 'GET') {
-    const candidates = all(db, 'platform_candidates').map(candidate => ({ ...candidate, contacts: contactsForCandidate(db, candidate, context) }));
+    const candidates = all(db, 'platform_candidates').map(candidate => ({ ...candidate, excluded: isProfileExcluded(db, candidate), contacts: contactsForCandidate(db, candidate, context) }));
     return send(response, 200, { roles: all(db, 'platform_roles'), candidates, memberships: all(db, 'platform_memberships'), events: all(db, 'platform_events').slice(0, 300), imports: all(db, 'platform_imports'), stages: STAGES, mode: 'public_sources_only' }), true;
   }
   if (url.pathname === '/api/roles' && request.method === 'POST') {
@@ -144,13 +150,13 @@ export async function workspaceRoutes(request, response, url, context) {
     const roleId = string(url.searchParams.get('roleId'), 'Role ID', 100, true);
     if (!get(db, 'platform_roles', roleId)) throw fail('Role not found.', 404);
     const memberships = all(db, 'platform_memberships').filter(item => item.roleId === roleId);
-    const rows = memberships.map(membership => {
+    const rows = memberships.filter(membership => !isProfileExcluded(db, get(db, 'platform_candidates', membership.candidateId))).map(membership => {
       const candidate = get(db, 'platform_candidates', membership.candidateId);
       const approved = contactsForCandidate(db, candidate, context).filter(contact => contact.review === 'approved' && contact.deliverability !== 'invalid' && !context.isSuppressed(contact.email));
-      return { name: candidate.name, company: candidate.company, stage: membership.stage, profile_url: candidate.profileUrl, source_project: candidate.sourceProject, source_id: candidate.sourceId, approved_emails: approved.map(contact => contact.email).join(' | '), deliverability: approved.length ? 'unknown' : '', source_urls: [...new Set(approved.flatMap(contact => contact.sources.map(source => source.url).filter(Boolean)))].join(' | '), notes: candidate.notes };
+      return { name: candidate.name, company: candidate.company, stage: membership.stage, profile_url: candidate.profileUrl, source_project: candidate.sourceProject, source_id: candidate.sourceId, approved_emails: approved.map(contact => contact.email).join(' | '), deliverability: approved.length ? 'unknown' : '', source_urls: [...new Set([...approved.flatMap(contact => contact.sources.map(source => source.url).filter(Boolean)), ...evidenceLinks(db, candidate)])].join(' | '), evidence_snapshot_ids: (candidate.evidenceSnapshotIds || []).join(' | '), qualification_state: candidate.qualificationState || 'unknown', notes: candidate.notes };
     });
     if (url.searchParams.get('format') === 'json') return send(response, 200, { count: rows.length, candidates: rows }), true;
-    const columns = ['name', 'company', 'stage', 'profile_url', 'source_project', 'source_id', 'approved_emails', 'deliverability', 'source_urls', 'notes'];
+    const columns = ['name', 'company', 'stage', 'profile_url', 'source_project', 'source_id', 'approved_emails', 'deliverability', 'source_urls', 'evidence_snapshot_ids', 'qualification_state', 'notes'];
     response.setHeader('Content-Disposition', 'attachment; filename="role-pipeline.csv"');
     send(response, 200, '\uFEFF' + [columns.map(csvCell).join(','), ...rows.map(row => columns.map(key => csvCell(row[key])).join(','))].join('\r\n') + '\r\n', 'text/csv; charset=utf-8');
     return true;

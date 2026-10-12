@@ -1,0 +1,10 @@
+{
+  "candidateOS": {
+    "baseUrl": "http://127.0.0.1:4322",
+    "tokenFile": "/absolute/private/path/evidence-reader.token"
+  },
+  "talentos": {
+    "databasePath": "/absolute/path/to/existing/talentos.db"
+  },
+  "vitalcv": { "enabled": true }
+}

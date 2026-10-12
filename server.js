@@ -5,11 +5,20 @@ import { createApp as createContactApp } from './apps/contact-finder/server.js';
 import { setupWorkspace, workspaceRoutes } from './packages/workspace.js';
 import { planImport, importPreview, commitImport } from './packages/imports.js';
 import { probeIntegrationStatus } from './scripts/doctor.js';
+import { createLiveSources, readLiveConfig } from './packages/live-sources.js';
+import { setupEvidence, liveWorkspaceRoutes } from './packages/source-workspace.js';
+import { setupSourcePolicy, syncSourceExclusions, isProfileExcluded } from './packages/source-policy.js';
 
 const root = dirname(fileURLToPath(import.meta.url));
 
-export function createPlatform({ dataDir = join(root, 'data'), discovery } = {}) {
-  return createContactApp({ dataDir, discovery, configure: setupWorkspace, extraRoutes: async (request, response, url, context) => {
+export function createPlatform({ dataDir = join(root, 'data'), discovery, liveConfig = dataDir === join(root, 'data') ? readLiveConfig(root) : {}, sources = createLiveSources(liveConfig) } = {}) {
+  return createContactApp({ dataDir, discovery, isJobExcluded: (db, job) => isProfileExcluded(db, { ...job.input, profileUrls: [...(job.profileUrls || []), job.sourceUrl].filter(Boolean) }), configure: db => { setupWorkspace(db); setupSourcePolicy(db); setupEvidence(db); }, extraRoutes: async (request, response, url, context) => {
+    if (url.pathname.startsWith('/api/') && !['/api/sources/status', '/api/projects', '/api/integrations/status'].includes(url.pathname)) {
+      // Sticky exclusions are copied only into this platform. A failed configured
+      // feed blocks actions instead of claiming the source has no exclusions.
+      try { syncSourceExclusions(context.db, await sources.exclusions()); }
+      catch { throw Object.assign(new Error('The source exclusion feed is unavailable. Restore its reader before continuing this action.'), { status: 503 }); }
+    }
     if (request.method === 'GET') {
       const assets = {
         '/': ['public/index.html', 'text/html; charset=utf-8'],
@@ -33,6 +42,7 @@ export function createPlatform({ dataDir = join(root, 'data'), discovery } = {})
       }
       if (url.pathname === '/api/integrations/status') { context.send(response, 200, { integrations: await probeIntegrationStatus() }); return true; }
     }
+    if (await liveWorkspaceRoutes(request, response, url, context, sources)) return true;
     if (url.pathname === '/api/import' && request.method === 'POST') {
       const input = await context.bodyJson(request);
       const plan = planImport(input.format, input.content);
@@ -50,6 +60,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   if (!existsSync(join(root, 'public/index.html'))) throw new Error('The platform interface is missing. Restore the source files before starting.');
   const app = createPlatform();
   app.server.on('error', error => { console.error(error.code === 'EADDRINUSE' ? `Port ${port} is already in use. Open the existing workspace.` : 'The platform could not start.'); process.exitCode = 1; });
-  app.server.listen(port, '127.0.0.1', () => console.log(`Talent Platform v0.1.0: http://127.0.0.1:${port}`));
+  app.server.listen(port, '127.0.0.1', () => console.log(`Talent Platform v0.2.0: http://127.0.0.1:${port}`));
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, async () => { await app.close(); process.exit(0); });
 }

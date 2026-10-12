@@ -24,6 +24,14 @@ workspace version 1. Preview shows omitted fields before explicit commit.
 Imported email labels cannot become approved contacts without separate source
 evidence and review. No names are automatically merged.
 
+Optional live adapters now read Candidate Intelligence professional evidence,
+TalentOS role briefs and public-reference records, and VitalCV public typed
+claims. Projects & imports provides Inspect → Keep and role import controls;
+Candidates shows immutable evidence snapshots and exact-NPI credential reads.
+Unknown qualification, missing evidence and global exclusions remain explicit.
+See [live source setup and workflow](docs/LIVE_SOURCES.md). Original stores stay
+with their source projects. No upstream proprietary code is distributed here.
+
 This repository starts with an empty source-project catalog and no personal
 records, credentials, source-repository paths, raw audit downloads or private
 inventories. Add your own entries in ignored `integrations/source-projects.local.json`

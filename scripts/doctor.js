@@ -4,6 +4,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
+import { createLiveSources, readLiveConfig } from '../packages/live-sources.js';
+import { fileURLToPath } from 'node:url';
 
 const executeFile = promisify(execFile);
 const localManifestUrl = new URL('../integrations/source-projects.local.json', import.meta.url);
@@ -116,8 +118,8 @@ export async function inspectSourceProjects() {
 
 async function main() {
   try {
-    const [sources, integrations] = await Promise.all([inspectSourceProjects(), probeIntegrationStatus()]);
-    process.stdout.write(`${JSON.stringify({ catalogValid: true, observedAt: new Date().toISOString(), mode: 'read-only', sourceCount: sources.length, sources, integrations }, null, 2)}\n`);
+    const [sources, integrations, readers] = await Promise.all([inspectSourceProjects(), probeIntegrationStatus(), createLiveSources(readLiveConfig(path.dirname(path.dirname(fileURLToPath(import.meta.url))))).status()]);
+    process.stdout.write(`${JSON.stringify({ catalogValid: true, observedAt: new Date().toISOString(), mode: 'read-only', sourceCount: sources.length, sources, integrations, evidenceReaders: readers.sources }, null, 2)}\n`);
     // Missing/offline source services are honest states, not a corrupt catalog.
   } catch (error) {
     process.stderr.write(`${JSON.stringify({ catalogValid: false, error: error.message })}\n`);

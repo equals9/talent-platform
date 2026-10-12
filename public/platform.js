@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = selector => document.querySelector(selector);
-const state = { token: null, workspace: { roles: [], candidates: [], memberships: [], events: [], imports: [], stages: [] }, jobs: [], projects: [], integrations: [], selectedJob: null, selectedRole: null, submitting: false, polling: false, importPreview: null, view: 'research' };
+const state = { token: null, workspace: { roles: [], candidates: [], memberships: [], events: [], imports: [], stages: [] }, jobs: [], projects: [], integrations: [], selectedJob: null, selectedRole: null, submitting: false, polling: false, importPreview: null, view: 'research', liveSources: [], sourceResults: null, sourceDetail: null, sourceRequest: 0 };
 let toastTimer;
 const stages = ['researched', 'shortlisted', 'contacted', 'interviewing', 'offer', 'hired', 'closed'];
 const stageLabel = value => String(value || '').replaceAll('_', ' ').replace(/^./, letter => letter.toUpperCase());
@@ -300,6 +300,7 @@ function renderCandidates() {
     const observation = importedObservation(candidate); if (observation) card.append(observation);
     if (candidate.profileUrl) card.append(safeLink(candidate.profileUrl, 'Open profile reference ↗', 'candidate-profile'));
     if (candidate.notes) card.append(el('p', 'candidate-notes', candidate.notes));
+    if (candidate.excluded) card.append(el('p', 'observation-limit', 'Excluded in this workspace. Source history is retained; this person is withheld from use.'));
     const memberships = candidateRoles(candidate.id);
     if (memberships.length) {
       const badges = el('div', 'candidate-roles');
@@ -314,6 +315,37 @@ function renderCandidates() {
       for (const contact of candidate.contacts) evidence.append(contactCard(contact, candidate.sourceId));
       card.append(evidence);
     } else card.append(el('p', 'field-help', 'No source-backed email contacts attached.'));
+    const snapshotPanel = el('div', 'candidate-snapshot-panel'); snapshotPanel.hidden = true;
+    const snapshotButton = action('Inspect saved evidence', 'button secondary small', async () => {
+      snapshotButton.disabled = true; snapshotPanel.hidden = false; snapshotPanel.replaceChildren(el('p', 'field-help', 'Reading retained evidence…'));
+      try {
+        const result = await json(`/api/candidates/${encodeURIComponent(candidate.id)}/evidence`);
+        snapshotPanel.replaceChildren();
+        if (!result.snapshots?.length) snapshotPanel.append(el('p', 'field-help', 'No live source snapshot is retained for this candidate. Contact research, if present, stays attached above.'));
+        for (const snapshot of result.snapshots || []) {
+          const detail = el('details', 'saved-snapshot'); detail.open = true;
+          detail.append(el('summary', '', `${sourceLabel(snapshot.sourceProject)} · ${date(snapshot.selectedAt || snapshot.observedAt || snapshot.createdAt) || 'Time not supplied'}`));
+          detail.append(el('p', 'source-lineage', `Original record ${snapshot.sourceRecordId || snapshot.sourceId || 'Not supplied'} · Snapshot ${snapshot.id || 'Not supplied'}`));
+          if (snapshot.digest || snapshot.snapshotHash) detail.append(el('p', 'source-lineage', `Evidence digest ${snapshot.digest || snapshot.snapshotHash}`));
+          detail.append(evidenceDocument(snapshot.document || snapshot, snapshot.sourceProject)); snapshotPanel.append(detail);
+        }
+      } catch (cause) { snapshotPanel.replaceChildren(el('p', 'form-error', cause.message)); }
+      finally { snapshotButton.disabled = false; }
+    });
+    const evidenceActions = el('div', 'source-search-actions'); evidenceActions.append(snapshotButton);
+    if (candidate.npi) {
+      const vitalcvButton = action('Read VitalCV credential evidence', 'button secondary small', async () => {
+        vitalcvButton.disabled = true; snapshotPanel.hidden = false; snapshotPanel.replaceChildren(el('p', 'field-help', `Reading public credential claims for exact NPI ${candidate.npi}…`));
+        try {
+          const result = await post(`/api/candidates/${encodeURIComponent(candidate.id)}/vitalcv`, {});
+          snapshotPanel.replaceChildren(evidenceDocument(result.snapshot?.document || result.snapshot || {}, 'vitalcv'));
+          await refreshWorkspace(); toast('VitalCV observation retained. Qualification remains unknown and requires review.');
+        } catch (cause) { snapshotPanel.replaceChildren(el('p', 'form-error', cause.message)); }
+        finally { vitalcvButton.disabled = false; }
+      });
+      vitalcvButton.disabled = candidate.excluded === true; evidenceActions.append(vitalcvButton);
+    } else snapshotPanel.append(el('p', 'field-help', 'A source-backed exact NPI is required for VitalCV credential reads.'));
+    card.append(evidenceActions, snapshotPanel);
     if (state.workspace.roles.length) {
       const add = el('div', 'candidate-add'); const roleSelect = el('select'); roleSelect.setAttribute('aria-label', `Role for ${candidate.name}`); roleOptions(roleSelect, 'Choose a role');
       const addButton = action('Add to role', 'button secondary small', async () => {
@@ -322,6 +354,7 @@ function renderCandidates() {
         try { await post('/api/pipeline', { roleId: roleSelect.value, candidateId: candidate.id }); await refreshWorkspace(); renderAll(); toast('Candidate added to the role.'); }
         catch (cause) { toast(cause.message); addButton.disabled = false; }
       });
+      addButton.disabled = candidate.excluded === true;
       add.append(roleSelect, addButton); card.append(add);
     }
     list.append(card);
@@ -352,6 +385,8 @@ function renderRoles() {
   const header = el('div', 'pipeline-heading'); const identity = el('div'); identity.append(el('h2', '', role.title), el('p', '', [role.company, role.location].filter(Boolean).join(' · ') || 'Open role'));
   const exportButton = action('Export pipeline ↓', 'button secondary small', () => downloadPipeline(role.id, exportButton)); header.append(identity, exportButton); content.append(header);
   if (role.description) content.append(el('p', 'pipeline-brief', role.description));
+  if(role.provenance?.sourceId) content.append(el('p','source-lineage',`Original ${sourceLabel(role.provenance.sourceProject)} role ${role.provenance.sourceId} · Saved source snapshot ${role.provenance.snapshotId || 'not supplied'}`));
+  if(role.criteria?.length) { const details=el('details','source-reference-list'); details.append(el('summary','',`${role.criteria.length} saved upstream role criteria`)); for(const criterion of role.criteria) { const item=el('div','source-observation'); item.append(el('strong','',criterion.text || criterion.statement || 'Criterion'),el('p','source-lineage',`${criterion.sourceRecordId || criterion.id} · ${criterion.status || 'unreviewed'} · Quote support ${criterion.quoteSupport || 'unknown'}`));if(criterion.statement)item.append(el('blockquote','',criterion.statement));if(criterion.contested)appendSourceNote(item,'Contested upstream criterion.');details.append(item); }details.append(el('p','field-help','Source phrases and upstream interpretations do not establish candidate fit.'));content.append(details); }
   const memberships = state.workspace.memberships.filter(member => member.roleId === role.id);
   const overview = el('div', 'stage-overview');
   for (const stage of state.workspace.stages || stages) {
@@ -367,11 +402,13 @@ function renderRoles() {
     const row = el('div', 'pipeline-row'); const identity = el('div'); identity.append(el('h3', '', candidate.name), el('p', '', candidate.company || candidate.sourceProject || 'Recruiter record'));
     const stageSelect = el('select'); stageSelect.setAttribute('aria-label', `Pipeline stage for ${candidate.name}`);
     for (const stage of state.workspace.stages || stages) { const option = el('option', '', stageLabel(stage)); option.value = stage; stageSelect.append(option); }
-    stageSelect.value = member.stage;
+    stageSelect.value = member.stage; stageSelect.disabled = !!candidate.excluded;
+    if(candidate.excluded) identity.append(pill('suppressed','Excluded from use and export'));
     stageSelect.addEventListener('change', async () => {
       stageSelect.disabled = true;
       try { await post('/api/pipeline/stage', { roleId: role.id, candidateId: candidate.id, stage: stageSelect.value }); await refreshWorkspace(); renderAll(); toast('Recruiting stage recorded.'); }
-      catch (cause) { stageSelect.value = member.stage; stageSelect.disabled = false; toast(cause.message); }
+      catch (cause) { stageSelect.value = member.stage; stageSelect.disabled = !!candidate.excluded;
+    if(candidate.excluded) identity.append(pill('suppressed','Excluded from use and export')); stageSelect.disabled = false; toast(cause.message); }
     });
     const approved = (candidate.contacts || []).filter(contact => contact.review === 'approved');
     const contactStatus = approved.length ? `${approved.length} confirmed contact${approved.length > 1 ? 's' : ''} · delivery unknown` : candidate.contacts?.length ? 'Contact review pending' : 'No approved email';
@@ -404,7 +441,181 @@ function renderProjects() {
     for (const record of state.workspace.imports.slice(0, 10)) importHistory.append(el('p', '', `${stageLabel(record.format || record.sourceProject || 'Import')} · ${counted(record.candidatesCreated ?? record.candidateCount ?? 0, 'candidate')} · ${date(record.createdAt || record.at)}`));
   }
 }
-function renderAll() { renderMetrics(); renderHistory(); renderResearch(); renderCandidates(); renderRoles(); renderProjects(); }
+function sourceLabel(project) {
+  return ({ 'candidate-intelligence-os': 'Candidate Intelligence', 'candidate-os': 'Candidate Intelligence', talentos: 'TalentOS', vitalcv: 'VitalCV' })[project] || stageLabel(project || 'Source');
+}
+function recordId(record) { return record?.sourceId || record?.id || record?.personId || record?.person_id; }
+function recordName(record) { return record?.name || record?.fullName || record?.displayName || 'Unnamed source record'; }
+function appendSourceNote(container, value) {
+  if (typeof value === 'string' && value) container.append(el('p', 'observation-limit', value));
+}
+function evidenceDocument(document, project) {
+  const container = el('div', 'evidence-document');
+  const person = document.person || document.candidate || document.subject || {};
+  const identity = el('div', 'source-facts');
+  for (const [label, value] of [['Source project', sourceLabel(project || document.projectId || document.sourceProject)], ['Source record', recordId(person)], ['Source read status', document.status ? stageLabel(document.status) : null], ['Exact NPI', person.npi], ['Source observation time', document.observedAt || person.observedAt], ['Source version', document.sourceVersion || document.service?.gitSha], ['Authority', person.authority || document.authority], ['Qualification', document.qualificationState], ['Identity association', document.credentialAssociation]]) {
+    if (value === undefined || value === null || value === '') continue;
+    const field = el('div'); field.append(el('span', '', label), el('strong', '', value)); identity.append(field);
+  }
+  if (identity.childNodes.length) container.append(identity);
+  if (document.verification?.decisionGrade === false || project === 'vitalcv') container.append(el('p', 'observation-limit', 'Credential qualification unknown · Independent acceptance unassessed · Decision-grade evidence: no.'));
+  if (person.excluded || document.excluded) container.append(el('p', 'form-error', 'This source record is excluded. Its retained history is for review only.'));
+  for (const message of [...(document.limitations || document.limits?.limitations || []), ...(document.warnings || []), ...(person.warnings || [])]) appendSourceNote(container, message);
+  if (document.limits && typeof document.limits === 'object') {
+    const values = Object.entries(document.limits).filter(([,value])=>typeof value === 'number' || typeof value === 'boolean').map(([key,value])=>`${stageLabel(key)}: ${value}`);
+    if (values.length) container.append(el('p','source-lineage',`Evidence read limits · ${values.join(' · ')}`));
+  }
+  const observations = document.evidence || person.evidence || document.facts || [];
+  const references = document.sources || person.sources || [];
+  if(document.truncated) appendSourceNote(container,'This selected-source read reached an evidence limit. The retained observation is partial; review the original source for complete history.');
+  if (observations.length) {
+    container.append(el('h3', 'source-section-title', 'Original source observations'));
+    const appendObservation = (target,observation) => {
+      if(Array.isArray(observation.assertions)) {
+        const group=el('details','source-observation source-assertion-group');
+        group.append(el('summary','',`${observation.sourceName || observation.title || 'Source record'} · ${counted(observation.assertions.length,'assertion')}`));
+        if(observation.url) group.append(safeLink(observation.url));
+        group.append(el('p','source-lineage',`Evidence record ${observation.id || 'Not supplied'} · Source ${observation.sourceId || observation.externalId || 'Not supplied'} · ${observation.observedAt || 'Time not supplied'}`));
+        if(observation.contentHash) group.append(el('p','source-lineage',`Content digest ${observation.contentHash}`));
+        for(const assertion of observation.assertions) appendObservation(group,{url:observation.url,evidenceRecordId:observation.id,...assertion});
+        target.append(group); return;
+      }
+      const item = el('article', 'source-observation');
+      const head = el('div', 'source-observation-heading');
+      head.append(el('h3', '', observation.title || observation.predicate || observation.type || observation.criterion || 'Source observation'), pill('unknown', stageLabel(observation.status || observation.upstreamStatus || observation.verificationStatus || 'unverified'))); item.append(head);
+      const sourceUrl = observation.url || observation.sourceUrl || observation.source_url;
+      if (sourceUrl) item.append(safeLink(sourceUrl));
+      const observedAt = observation.sourceObservedAt || observation.observedAt || observation.retrievedAt || observation.retrieved_at;
+      item.append(el('p', 'source-lineage', `Record ${observation.sourceRecordId || observation.id || observation.claimId || 'Not supplied'}${observation.evidenceRecordId ? ` · Evidence ${observation.evidenceRecordId}` : ''} · ${observedAt || 'Observation time not supplied'}`));
+      item.append(el('p', 'source-lineage', `Quote kind · ${stageLabel(observation.quoteKind || observation.quote_kind || 'not supplied')} · Authority · ${stageLabel(observation.authority || observation.provenance || 'upstream observation')}`));
+      if(['string','number','boolean'].includes(typeof observation.value)) item.append(el('p','source-assertion-value',String(observation.value)));
+      const quote = observation.quote || observation.snippet || observation.context || observation.evidenceText;
+      if (typeof quote === 'string' && quote) item.append(el('blockquote', '', quote));
+      else item.append(el('p', 'field-help', 'No verbatim source quote supplied.'));
+      if (observation.quoteTruncated) appendSourceNote(item, 'This quote is a bounded excerpt. The original record remains authoritative.');
+      if (observation.retractedAt || observation.retracted_at || observation.isRetracted || observation.retracted || /retract|withdraw|revoke/i.test(String(observation.status || observation.upstreamStatus || ''))) appendSourceNote(item, `Retraction or revocation reported by upstream${observation.retractedAt || observation.retracted_at ? ` · ${observation.retractedAt || observation.retracted_at}` : ''}. Retained history is not current qualification evidence.`);
+      else if(observation.current === false) appendSourceNote(item,'Historical assertion. This is not a current qualification observation.');
+      if (observation.reviewRequired !== undefined) appendSourceNote(item, `Upstream review required: ${observation.reviewRequired ? 'yes' : 'no'}. Independent credential acceptance remains unassessed.`);
+      if (observation.freshness?.state) appendSourceNote(item, `Freshness · ${stageLabel(observation.freshness.state)}${observation.freshness.validUntil ? ` · Valid until ${observation.freshness.validUntil}` : ''}`);
+      for (const warning of observation.limitations || []) appendSourceNote(item, warning);
+      target.append(item);
+    };
+    for(const observation of observations) appendObservation(container,observation);
+  } else container.append(el('p', 'field-help', 'No source-supported qualification observations were supplied. A profile reference alone does not establish fit.'));
+  if (references.length) {
+    const refs = el('details', 'source-reference-list'); refs.append(el('summary', '', counted(references.length, 'source reference')));
+    for (const reference of references) {
+      const entry = el('div', 'source-reference'); const url = typeof reference === 'string' ? reference : reference.url || reference.sourceUrl;
+      if (url) entry.append(safeLink(url));
+      entry.append(el('p', 'source-lineage', `Record ${reference.sourceRecordId || reference.id || reference.sourceId || 'Not supplied'} · ${reference.observedAt || reference.computedAt || 'Time not supplied'}${reference.authority ? ` · ${reference.authority}` : ''}`));
+      if (reference.runtimeState) appendSourceNote(entry, `Source runtime · ${reference.runtimeState} · Freshness ${reference.freshnessStatus || 'unknown'}`);
+      if (reference.limitation) appendSourceNote(entry, reference.limitation);
+      refs.append(entry);
+    }
+    container.append(refs);
+  }
+  const profileUrls = person.profileUrls || (person.profileUrl ? [person.profileUrl] : []);
+  if (profileUrls.length && !references.length) for (const url of profileUrls) container.append(safeLink(url, 'Open public profile reference ↗', 'candidate-profile'));
+  const contacts = document.contacts || person.contacts || [];
+  container.append(el('h3', 'source-section-title', 'Contact observations'));
+  if (!contacts.length) container.append(el('p', 'field-help', 'No published email observation supplied. Deliverability remains unknown.'));
+  for (const contact of contacts) {
+    const item = el('article', 'source-contact-observation');
+    item.append(el('strong', '', contact.email || contact.value || 'Contact value not supplied'), el('p', 'field-help', `Person association · ${stageLabel(contact.review || contact.ownership || 'unreviewed')} · Deliverability unknown`));
+    if (contact.excluded || contact.review === 'suppressed') appendSourceNote(item, 'Excluded globally. Withheld from use and export.');
+    if(contact.sourceUrl) item.append(safeLink(contact.sourceUrl));
+    if(contact.observedAt) item.append(el('p','source-lineage',`Observed ${contact.observedAt} · Evidence ${contact.evidenceId || 'Not supplied'}`));
+    if(contact.quote) item.append(el('blockquote','',contact.quote));
+    if(contact.evidenceSupported === false || contact.actionable === false) appendSourceNote(item,'This upstream contact observation is not actionable. Source association and human review remain required.');
+    for (const source of contact.sources || []) {
+      if (source.url || source.sourceUrl) item.append(safeLink(source.url || source.sourceUrl));
+      if (source.observedAt) item.append(el('p', 'source-lineage', `Observed ${source.observedAt}`));
+      if (source.quote || source.context) item.append(el('blockquote', '', source.quote || source.context));
+    }
+    container.append(item);
+  }
+  if (document.coverage?.length) {
+    const coverage = el('details', 'source-reference-list'); coverage.append(el('summary', '', 'Credential read coverage'));
+    for (const row of document.coverage) { const entry = el('div', 'source-reference'); entry.append(safeLink(row.sourceUrl || row.url), el('p', 'source-lineage', `${stageLabel(row.status)} · ${row.observedAt || 'Time not supplied'}`)); if (row.error) appendSourceNote(entry,row.error); coverage.append(entry); }
+    container.append(coverage);
+  }
+  return container;
+}
+function renderLiveSources() {
+  const list = $('#live-source-status'); list.replaceChildren();
+  if (!state.liveSources.length) { list.append(el('p', 'small-empty', 'Source connection status has not been read. Refresh connections to inspect the configured readers.')); return; }
+  for (const source of state.liveSources) {
+    const card = el('article', 'live-status-card');
+    const status = source.status || source.state || (source.available ? 'available' : source.configured ? 'configured' : 'not_configured');
+    card.append(el('h3', '', sourceLabel(source.projectId || source.sourceProject)), pill(/available|online|read_only/.test(status) ? '' : 'unknown', stageLabel(status)));
+    card.append(el('p', '', source.readOnly ? 'Read-only source connection' : source.projectId === 'vitalcv' ? 'Public GET evidence adapter' : 'Connection mode not supplied'));
+    if (source.counts) card.append(el('p', 'source-lineage', Object.entries(source.counts).filter(([,value])=>typeof value === 'number').map(([key,value])=>`${stageLabel(key)}: ${value}`).join(' · ')));
+    if (source.observedAt) card.append(el('p', 'source-lineage', `Read ${source.observedAt}`));
+    if (source.message || source.error) card.append(el('p', 'field-help', source.message || source.error));
+    for (const limitation of source.limitations || []) appendSourceNote(card,limitation);
+    list.append(card);
+  }
+}
+async function refreshLiveSources() {
+  const button = $('#refresh-live-sources'); button.disabled = true; error('#live-source-error','');
+  try { const result = await json('/api/sources/status'); state.liveSources = result.sources || []; renderLiveSources(); }
+  catch(cause) { error('#live-source-error',cause.message); }
+  finally { button.disabled = false; }
+}
+async function inspectSource(project, record, kind='candidate') {
+  const request = ++state.sourceRequest;
+  error('#live-source-error',''); $('#live-source-detail').replaceChildren(stateMessage('Reading original evidence…','Selected source records stay in their original stores.',true));
+  try {
+    const id = recordId(record);
+    const path = kind === 'role' ? `/api/sources/talentos/roles/${encodeURIComponent(id)}` : `/api/sources/${project === 'talentos' ? 'talentos' : 'candidate-os'}/people/${encodeURIComponent(id)}/evidence`;
+    const document = await json(path); if(request !== state.sourceRequest) return;
+    state.sourceDetail = {project,record,kind,document}; renderSourceDetail();
+  } catch(cause) { if(request === state.sourceRequest) { state.sourceDetail = null; $('#live-source-detail').replaceChildren(stateMessage('Source evidence unavailable.',cause.message,false,true)); } }
+}
+function renderSourceResults() {
+  const list = $('#live-source-results'); list.replaceChildren(); const result = state.sourceResults;
+  if(!result) { list.append(el('p','small-empty','Search candidates or browse source roles to start.')); return; }
+  list.append(el('p','source-results-heading',`${sourceLabel(result.project)} · ${counted(result.records.length,result.kind === 'role' ? 'role' : 'candidate')}`));
+  if(result.truncated) appendSourceNote(list,`This is a partial source result set${result.candidatesConsidered !== undefined ? `; ${result.candidatesConsidered} records considered in a window of ${result.candidateWindow || 'unknown'}` : ''}. Narrow the keywords to inspect another selection.`);
+  if(!result.records.length) list.append(el('p','small-empty','No supported public-source records matched this selection.'));
+  for(const record of result.records) {
+    const card=el('article','source-result-card'); card.append(el('h3','',result.kind === 'role' ? record.title : recordName(record)),el('p','field-help',[record.company || record.currentCompany || record.currentOrganization,record.title && result.kind !== 'role' ? record.title : '',record.location].filter(Boolean).join(' · ')));
+    card.append(el('p','source-lineage',`Original ID ${recordId(record) || 'Not supplied'}`));
+    if(record.excluded) card.append(pill('suppressed','Excluded'));
+    const inspect=action(result.kind === 'role' ? 'Inspect role criteria' : 'Inspect source evidence','button secondary small',()=>inspectSource(result.project,record,result.kind)); card.append(inspect); list.append(card);
+  }
+}
+function renderSourceDetail() {
+  const box=$('#live-source-detail'); box.replaceChildren(); const detail=state.sourceDetail;
+  if(!detail) { box.append(stateMessage('Inspect before keeping.','Select a source record to read its evidence, original status, and limitations.')); return; }
+  const record=detail.document.role || detail.document.person || detail.document.candidate || detail.record;
+  box.append(el('h3','source-detail-name',detail.kind === 'role' ? record.title : recordName(record)),el('p','source-lineage',`${sourceLabel(detail.project)} · Original ID ${recordId(record) || recordId(detail.record)}`));
+  if(detail.kind === 'role') {
+    if(record.description) box.append(el('blockquote','role-source-brief',record.description));
+    for(const criterion of record.criteria || []) {
+      const item=el('article','source-observation'); item.append(el('h3','',criterion.text || criterion.label || 'Criterion'),el('p','source-lineage',`${stageLabel(criterion.kind)} · ${stageLabel(criterion.status)} · Origin ${criterion.provenance || criterion.origin || 'unknown'}`));
+      if(criterion.statement) item.append(el('blockquote','',criterion.statement)); if(criterion.definition) item.append(el('p','field-help',criterion.definition));
+      item.append(el('p','source-lineage',`Source record ${criterion.sourceRecordId || criterion.id || 'Not supplied'} · Quote support ${stageLabel(criterion.quoteSupport || 'unknown')} · ${criterion.observedAt || 'Time not supplied'}`));
+      if(criterion.contested) appendSourceNote(item,'Upstream stakeholders disagree about this criterion.');
+      appendSourceNote(item,'Upstream derived criterion. This does not establish candidate fit.'); box.append(item);
+    }
+    for(const warning of record.warnings || []) appendSourceNote(box,warning);
+    const imported=action('Import selected role','button primary',async()=>{
+      imported.disabled=true;
+      try { const result=await post('/api/import-source-role',{sourceId:recordId(detail.record)}); await refreshWorkspace(); state.selectedRole=result.role?.id || state.selectedRole; renderAll(); toast(result.reused ? 'Source role is already retained. New observations remain reviewable.' : 'Selected role imported with source criteria and original lineage.'); }
+      catch(cause) { error('#live-source-error',cause.message); imported.disabled=false; }
+    }); box.append(imported); return;
+  }
+  box.append(evidenceDocument(detail.document,detail.project));
+  const excluded=record.excluded || detail.document.excluded;
+  const controls=el('div','source-keep-controls'); const roleSelect=el('select'); roleSelect.setAttribute('aria-label',`Destination role for ${recordName(record)}`); roleOptions(roleSelect);
+  const keep=action('Keep selected source candidate','button primary',async()=>{
+    keep.disabled=true; const roleId=roleSelect.value;
+    try { const result=await post('/api/keep-source',{sourceProject:detail.project,sourceId:recordId(detail.record),...(roleId ? {roleId} : {})}); await refreshWorkspace(); renderAll(); toast(result.reused ? 'Candidate already retained; source observation preserved.' : 'Selected source candidate kept. Contact ownership remains unreviewed.'); }
+    catch(cause) { error('#live-source-error',cause.message); keep.disabled=false; }
+  }); keep.disabled=!!excluded; controls.append(roleSelect,keep); box.append(el('p','field-help','Keeping preserves this source observation. It does not approve an email, inherit an upstream pipeline outcome, or verify credentials.'),controls);
+}
+function renderAll() { renderMetrics(); renderHistory(); renderResearch(); renderCandidates(); renderRoles(); renderProjects(); renderLiveSources(); renderSourceResults(); renderSourceDetail(); }
 function clearImportPreview() { state.importPreview = null; $('#import-preview').hidden = true; $('#import-preview').replaceChildren(); }
 function renderImportPreview(preview) {
   const container = $('#import-preview'); container.replaceChildren(); container.className = 'import-preview'; container.hidden = false;
@@ -426,6 +637,34 @@ function renderImportPreview(preview) {
   if (!preview.candidates && !preview.roles) commit.disabled = true;
   container.append(commit);
 }
+
+$('#refresh-live-sources').addEventListener('click',refreshLiveSources);
+$('#live-source-project').addEventListener('change',()=>{
+  state.sourceRequest++; state.sourceResults=null; state.sourceDetail=null; error('#live-source-error',''); renderSourceResults(); renderSourceDetail();
+});
+$('#live-source-form').addEventListener('submit',async event=>{
+  event.preventDefault(); const button=$('#live-source-search'); button.disabled=true; error('#live-source-error','');
+  const project=$('#live-source-project').value, query=$('#live-source-query').value.trim();
+  const request=++state.sourceRequest; state.sourceDetail=null; renderSourceDetail();
+  $('#live-source-results').replaceChildren(el('p','small-empty','Reading selected public-source records…'));
+  try {
+    const result=await json(`/api/sources/${project === 'talentos' ? 'talentos' : 'candidate-os'}/people?${project === 'talentos' ? 'query' : 'q'}=${encodeURIComponent(query)}&limit=25`);
+    if(request !== state.sourceRequest) return;
+    state.sourceResults={project,kind:'candidate',records:result.people || result.candidates || [],truncated:result.truncated || result.limited,candidatesConsidered:result.candidatesConsidered,candidateWindow:result.candidateWindow}; renderSourceResults();
+    for(const warning of result.warnings || []) appendSourceNote($('#live-source-results'),warning);
+  } catch(cause) { if(request === state.sourceRequest) { state.sourceResults=null; renderSourceResults(); error('#live-source-error',cause.message); } }
+  finally { button.disabled=false; }
+});
+$('#load-talentos-roles').addEventListener('click',async()=>{
+  const button=$('#load-talentos-roles'); button.disabled=true; error('#live-source-error','');
+  const request=++state.sourceRequest; state.sourceDetail=null; renderSourceDetail();
+  $('#live-source-results').replaceChildren(el('p','small-empty','Reading TalentOS role records…'));
+  try {
+    const result=await json('/api/sources/talentos/roles'); if(request !== state.sourceRequest) return;
+    state.sourceResults={project:'talentos',kind:'role',records:result.roles || []}; renderSourceResults();
+  } catch(cause) { if(request === state.sourceRequest) { state.sourceResults=null; renderSourceResults(); error('#live-source-error',cause.message); } }
+  finally { button.disabled=false; }
+});
 
 for (const node of document.querySelectorAll('[data-view]')) node.addEventListener('click', () => showView(node.dataset.view));
 for (const node of document.querySelectorAll('[data-go]')) node.addEventListener('click', () => { showView(node.dataset.go); if (node.dataset.go === 'roles') { $('#role-form-panel').hidden = false; $('#role-title').focus(); } });
@@ -488,7 +727,7 @@ async function start() {
     const status = await response.json(); if (!status.token) throw new Error('The local session could not be established.'); state.token = status.token;
     const [workspace, jobs, projects, integrations] = await Promise.all([json('/api/workspace'), json('/api/jobs'), json('/api/projects'), json('/api/integrations/status')]);
     state.workspace = workspace; state.jobs = jobs.jobs || []; state.projects = projects.projects || []; state.integrations = integrations.integrations || []; state.selectedJob = state.jobs[0]?.id || null;
-    $('#connection-label').textContent = 'Connected locally'; $('#connection-dot').className = 'connection-dot connected'; renderAll(); pollJobs();
+    $('#connection-label').textContent = 'Connected locally'; $('#connection-dot').className = 'connection-dot connected'; renderAll(); pollJobs(); refreshLiveSources();
   } catch (cause) {
     $('#connection-label').textContent = 'Connection needs attention'; $('#connection-dot').className = 'connection-dot error'; error('#global-error', `${cause.message} Reload after the local server is ready.`);
   }

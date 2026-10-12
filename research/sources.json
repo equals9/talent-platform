@@ -1,0 +1,248 @@
+{
+  "checkedAt": "2026-10-11",
+  "scope": "Current public primary competitor product pages and documentation; no account access or runtime performance observation",
+  "sources": [
+    {
+      "product": "Metaview",
+      "url": "https://www.metaview.ai/",
+      "type": "vendor_product",
+      "supports": "Current end-to-end platform positioning, agents, human controls, integrations FAQ"
+    },
+    {
+      "product": "Metaview",
+      "url": "https://www.metaview.ai/sourcing",
+      "type": "vendor_product",
+      "supports": "Web sourcing, intake context and feedback calibration"
+    },
+    {
+      "product": "Metaview",
+      "url": "https://www.metaview.ai/interview-notes",
+      "type": "vendor_product",
+      "supports": "Recruiting interview capture, notes and scorecard workflow"
+    },
+    {
+      "product": "Metaview",
+      "url": "https://www.metaview.ai/integrations",
+      "type": "vendor_directory",
+      "supports": "Advertised ATS, meeting and calendar ecosystem"
+    },
+    {
+      "product": "hireEZ",
+      "url": "https://hireez.com/ez-agent/",
+      "type": "vendor_product",
+      "supports": "Current action-layer platform scope and applicant review control"
+    },
+    {
+      "product": "hireEZ",
+      "url": "https://hireez.com/ai-sourcing/",
+      "type": "vendor_product",
+      "supports": "Open-web and ATS sourcing, persona/criteria matching, engagement and analytics"
+    },
+    {
+      "product": "hireEZ",
+      "url": "https://hireez.com/partners/",
+      "type": "vendor_directory",
+      "supports": "Advertised ATS, CRM, HRIS and communication integrations"
+    },
+    {
+      "product": "Noon",
+      "url": "https://www.noon.ai/product",
+      "type": "vendor_product",
+      "supports": "Coordinated sourcing, inbound, screening, fraud signals, engagement and notes scope"
+    },
+    {
+      "product": "Noon",
+      "url": "https://www.noon.ai/integrations",
+      "type": "vendor_directory",
+      "supports": "Advertised ATS connections and stage-mapping descriptions"
+    },
+    {
+      "product": "Noon",
+      "url": "https://www.noon.ai/product/network-sourcing",
+      "type": "vendor_product",
+      "supports": "Network/referral sourcing and outreach handoff"
+    },
+    {
+      "product": "Noon",
+      "url": "https://www.noon.ai/privacy",
+      "type": "vendor_policy",
+      "supports": "Disclosed public-record and third-party/vendor data sources",
+      "effectiveDate": "2026-06-01"
+    },
+    {
+      "product": "Juicebox",
+      "url": "https://juicebox.ai/",
+      "type": "vendor_product",
+      "supports": "Profile-index, search, intake, agent calibration, sequences and ATS/CRM claims"
+    },
+    {
+      "product": "Juicebox",
+      "url": "https://docs.juicebox.ai/",
+      "type": "vendor_documentation",
+      "supports": "Documented workflow and feature areas"
+    },
+    {
+      "product": "Juicebox",
+      "url": "https://docs.juicebox.ai/data-sources",
+      "type": "vendor_documentation",
+      "supports": "Public profile data compiled with partners, refresh and contact availability claims"
+    },
+    {
+      "product": "Juicebox",
+      "url": "https://docs.juicebox.ai/contact-data",
+      "type": "vendor_documentation",
+      "supports": "Contact-provider waterfall, Kickbox verification and conditional deliverability guarantee"
+    },
+    {
+      "product": "Juicebox",
+      "url": "https://docs.juicebox.ai/healthcare-data",
+      "type": "vendor_documentation",
+      "supports": "Healthcare beta including clinical criteria, license status and compact filtering"
+    },
+    {
+      "product": "Juicebox",
+      "url": "https://docs.juicebox.ai/dnc",
+      "type": "vendor_documentation",
+      "supports": "Company and individual do-not-contact controls"
+    },
+    {
+      "product": "Ashby",
+      "url": "https://www.ashbyhq.com/platform/recruiting/sourcing-crm",
+      "type": "vendor_product",
+      "supports": "Native sourcing/CRM, email lookup, sequences and own-data search"
+    },
+    {
+      "product": "Ashby",
+      "url": "https://www.ashbyhq.com/ai",
+      "type": "vendor_product",
+      "supports": "AI scheduling, notetaker, summaries and analytics features"
+    },
+    {
+      "product": "Ashby",
+      "url": "https://www.ashbyhq.com/integrations",
+      "type": "vendor_directory",
+      "supports": "Open API and integration ecosystem; partner validation workflow"
+    },
+    {
+      "product": "Gem",
+      "url": "https://www.gem.com/solutions/all-in-one",
+      "type": "vendor_product",
+      "supports": "Sourcing, CRM, ATS, scheduling and analytics consolidation"
+    },
+    {
+      "product": "Gem",
+      "url": "https://help.gem.com/external/gem-ai-features-overview",
+      "type": "vendor_documentation",
+      "supports": "Profile index plus own CRM/ATS, criteria, application review, sequences and summaries"
+    },
+    {
+      "product": "Gem",
+      "url": "https://www.gem.com/pricing",
+      "type": "vendor_product",
+      "supports": "Existing ATS overlay option; no numeric pricing used"
+    },
+    {
+      "product": "LinkedIn",
+      "url": "https://business.linkedin.com/hire/recruiter",
+      "type": "vendor_product",
+      "supports": "Member-network access, Hiring Assistant, InMail, Projects, integrations and human involvement"
+    },
+    {
+      "product": "Calyflow",
+      "url": "https://app.calyflow.ai/docs/agents",
+      "type": "vendor_documentation",
+      "supports": "Agent definitions, context assembly, built-in versus editable library agents",
+      "checkedAt": "2026-10-12T02:13:16Z",
+      "accessMethod": "public_http",
+      "evidenceStatus": "Official documentation read; product runtime not tested"
+    },
+    {
+      "product": "Calyflow",
+      "url": "https://www.calyflow.ai/automation-library",
+      "type": "vendor_product",
+      "supports": "Published specialist library and source-specific workflow examples",
+      "checkedAt": "2026-10-12T02:13:16Z",
+      "accessMethod": "web",
+      "evidenceStatus": "Official documentation read; product runtime not tested"
+    },
+    {
+      "product": "Calyflow",
+      "url": "https://app.calyflow.ai/docs/sourcing",
+      "type": "vendor_documentation",
+      "supports": "Approved sourcing plans, run limits, review and explicit outreach sending",
+      "checkedAt": "2026-10-12T02:13:16Z",
+      "accessMethod": "web",
+      "evidenceStatus": "Official documentation read; product runtime not tested"
+    },
+    {
+      "product": "Calyflow",
+      "url": "https://app.calyflow.ai/docs/responsible-ai",
+      "type": "vendor_documentation",
+      "supports": "Evidence quotations, formal benchmark limitation, trace and human-oversight claims",
+      "checkedAt": "2026-10-12T02:13:16Z",
+      "accessMethod": "web",
+      "evidenceStatus": "Official documentation read; product runtime not tested"
+    },
+    {
+      "product": "Calyflow",
+      "url": "https://app.calyflow.ai/docs/documents",
+      "type": "vendor_documentation",
+      "supports": "Active document versions, selected CV context and saved output handling",
+      "checkedAt": "2026-10-12T02:13:16Z",
+      "accessMethod": "public_http",
+      "evidenceStatus": "Official documentation read; product runtime not tested"
+    },
+    {
+      "product": "Calyflow",
+      "url": "https://app.calyflow.ai/docs/faq",
+      "type": "vendor_documentation",
+      "supports": "Project-file model transmission and hosted/BYO provider context",
+      "checkedAt": "2026-10-12T02:13:16Z",
+      "accessMethod": "public_http",
+      "evidenceStatus": "Official documentation read; product runtime not tested"
+    },
+    {
+      "product": "Calyflow",
+      "url": "https://app.calyflow.ai/docs/capabilities",
+      "type": "vendor_documentation",
+      "supports": "Declared tool and connector actions, including write capabilities",
+      "checkedAt": "2026-10-12T02:13:16Z",
+      "accessMethod": "web",
+      "evidenceStatus": "Official documentation read; product runtime not tested"
+    },
+    {
+      "product": "Calyflow",
+      "url": "https://app.calyflow.ai/docs/connectors/linkedin-proxy",
+      "type": "vendor_documentation",
+      "supports": "Hosted metered credits, exhaustion behavior and selfhosting provision boundary",
+      "checkedAt": "2026-10-12T02:13:16Z",
+      "accessMethod": "public_http",
+      "evidenceStatus": "Official documentation read; product runtime not tested"
+    },
+    {
+      "product": "Calyflow",
+      "url": "https://app.calyflow.ai/docs/security",
+      "type": "vendor_documentation",
+      "supports": "Credential isolation, encryption, workspace scope and security assertions",
+      "checkedAt": "2026-10-12T02:13:16Z",
+      "accessMethod": "web",
+      "evidenceStatus": "Official documentation read; product runtime not tested"
+    },
+    {
+      "product": "Calyflow",
+      "url": "https://app.calyflow.ai/docs/self-hosting",
+      "type": "vendor_documentation",
+      "supports": "Operator OAuth app and connector setup requirements",
+      "checkedAt": "2026-10-12T02:13:16Z",
+      "accessMethod": "web",
+      "evidenceStatus": "Official documentation read; product runtime not tested"
+    }
+  ],
+  "limitations": [
+    "Vendor scope and inventory statements are not independent performance evidence.",
+    "No comparative pricing, accuracy, hiring conversion, or delivery claims were measured.",
+    "Public-only direct-source acquisition is narrower than partner enrichment and privileged member-network access.",
+    "Healthcare-specific sourcing and credential filters are already advertised by Juicebox beta; novelty is not established.",
+    "Website marketing and documentation may differ from account-specific availability and must be rechecked before procurement or integration."
+  ]
+}

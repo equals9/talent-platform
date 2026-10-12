@@ -1,0 +1,16 @@
+{
+  "name": "talent-platform",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Consolidated recruiting development workspace with public-source evidence and recruiter control",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test apps/contact-finder/test/*.test.js test/*.test.js",
+    "check": "node --check server.js && node --check packages/workspace.js && node --check public/platform.js && node --check packages/imports.js",
+    "doctor": "node scripts/doctor.js",
+    "consolidate:contacts": "node scripts/consolidate-contacts.js"
+  },
+  "engines": { "node": ">=22.13" }
+}

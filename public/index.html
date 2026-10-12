@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Talent Platform · Recruiter workspace</title>
+  <link rel="stylesheet" href="/platform.css">
+  <script src="/platform.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to workspace</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#research" aria-label="Talent Platform home"><span class="brand-symbol" aria-hidden="true">t<span>↗</span></span><span>Talent<span class="brand-sub">Platform</span></span></a>
+      <div class="workspace-label">RECRUITER WORKSPACE</div>
+      <nav aria-label="Workspace navigation">
+        <button type="button" class="nav-item active" data-view="research" aria-current="page"><span aria-hidden="true">⌕</span> Research</button>
+        <button type="button" class="nav-item" data-view="candidates"><span aria-hidden="true">♧</span> Candidates <span class="nav-count" id="nav-candidates">0</span></button>
+        <button type="button" class="nav-item" data-view="roles"><span aria-hidden="true">▤</span> Roles & pipeline <span class="nav-count" id="nav-roles">0</span></button>
+        <button type="button" class="nav-item" data-view="projects"><span aria-hidden="true">⊞</span> Projects & imports</button>
+      </nav>
+      <div class="sidebar-bottom"><a class="contact-workspace" href="/contacts">Open contact workspace <span aria-hidden="true">↗</span></a><div class="local-note"><span class="connection-dot" id="connection-dot"></span><span id="connection-label">Connecting locally…</span></div><p>Public professional sources.<br>People and evidence stay together.</p></div>
+    </aside>
+    <div class="main-wrap">
+      <header class="topbar"><div class="breadcrumbs">Workspace <span>/</span> <strong id="page-name">Research</strong></div><span class="environment-pill">Local · Open source</span></header>
+      <main id="main" tabindex="-1">
+        <div class="global-error" id="global-error" role="alert" hidden></div>
+        <section class="view" id="view-research" aria-labelledby="research-heading">
+          <div class="page-heading"><div><div class="eyebrow">FROM SOURCE TO SHORTLIST</div><h1 id="research-heading">Find people. Keep the evidence.</h1><p>Research a prospect, review published contacts, and keep the person in your pipeline.</p></div><button type="button" class="button secondary" data-go="roles">Create a role <span aria-hidden="true">＋</span></button></div>
+          <div class="metrics" aria-label="Workspace overview"><div class="metric"><span>Saved candidates</span><strong id="metric-candidates">0</strong><small>People explicitly kept</small></div><div class="metric"><span>Open roles</span><strong id="metric-roles">0</strong><small>Recruiting in progress</small></div><div class="metric"><span>Contacts to review</span><strong id="metric-review">0</strong><small>Source associations pending</small></div><div class="metric"><span>Confirmed contacts</span><strong id="metric-confirmed">0</strong><small>Deliverability remains unknown</small></div></div>
+          <div class="research-layout">
+            <div class="research-left">
+              <section class="panel search-panel" aria-labelledby="new-research-heading"><div class="panel-heading"><div><h2 id="new-research-heading">Research a prospect</h2><p>A known professional website is the best starting point.</p></div><span class="small-badge">PUBLIC SOURCES</span></div>
+                <form id="research-form">
+                  <label for="person-name">Full name <span class="required">*</span></label><input id="person-name" name="name" autocomplete="off" placeholder="e.g. Alex Morgan" maxlength="300" required>
+                  <div class="form-grid"><div><label for="person-company">Company <span class="optional">optional</span></label><input id="person-company" name="company" placeholder="Current organization" maxlength="300"></div><div><label for="person-domain">Website domain</label><input id="person-domain" name="domain" placeholder="company.com" autocomplete="off" maxlength="2000"></div></div>
+                  <fieldset class="mode-picker"><legend>Research method</legend><label><input type="radio" name="mode" value="website" checked><span>Website search</span></label><label><input type="radio" name="mode" value="public"><span>Single page</span></label><label><input type="radio" name="mode" value="paste"><span>Pasted text</span></label></fieldset>
+                  <div id="url-fields"><label for="source-url" id="source-url-label">Starting page <span class="optional">optional with a domain</span></label><input id="source-url" name="sourceUrl" type="url" placeholder="https://company.com" maxlength="2000"><p class="field-help" id="source-url-help">Follows relevant public links on this website, up to 5 pages. Each finding keeps its source.</p></div>
+                  <div id="paste-fields" hidden><label for="source-text">Public source text <span class="required">*</span></label><textarea id="source-text" name="sourceText" rows="5" maxlength="100000" placeholder="Paste text from a public professional page."></textarea><label for="paste-url">Source URL <span class="optional">optional</span></label><input id="paste-url" type="url" placeholder="https://company.com/team" maxlength="2000"></div>
+                  <details class="optional-details"><summary>Profile reference & destination role</summary><label for="person-profile">Public profile link <span class="optional">reference only</span></label><input id="person-profile" type="url" placeholder="https://www.linkedin.com/in/…" maxlength="2000"><p class="field-help">LinkedIn is saved as a reference. Website research uses the domain or page you provide.</p><label for="research-role">Keep to role</label><select id="research-role"><option value="">Candidate library only</option></select></details>
+                  <p class="form-error" id="research-error" role="alert" hidden></p><button class="button primary full" type="submit" id="research-submit">Search website <span aria-hidden="true">↗</span></button>
+                  <div class="search-links" id="research-links" hidden><a id="search-person" target="_blank" rel="noopener noreferrer">Find professional website ↗</a><a id="search-domain" target="_blank" rel="noopener noreferrer">Search company website ↗</a></div>
+                </form>
+              </section>
+              <section class="panel history-panel"><div class="panel-heading compact"><h2>Recent research</h2><span id="history-count" class="subtle">0 searches</span></div><div id="research-history" class="history-list"><p class="small-empty">Your searches will appear here.</p></div></section>
+            </div>
+            <section class="panel result-panel" aria-labelledby="evidence-heading"><div class="panel-heading"><div><h2 id="evidence-heading">Source evidence</h2><p id="evidence-subtitle">Review the association before confirming a contact.</p></div><span id="result-count" class="count-pill" hidden></span></div><div id="research-result" aria-live="polite"><div class="empty-state"><div class="empty-art" aria-hidden="true">⌕</div><h3>Your next prospect starts here.</h3><p>Enter a person and website. Published contacts, source context, and coverage will appear together.</p><div class="empty-path"><span>Research</span><span aria-hidden="true">→</span><span>Review</span><span aria-hidden="true">→</span><span>Keep</span></div></div></div></section>
+          </div>
+        </section>
+        <section class="view" id="view-candidates" aria-labelledby="candidates-heading" hidden>
+          <div class="page-heading"><div><div class="eyebrow">YOUR TALENT LIBRARY</div><h1 id="candidates-heading">Candidates</h1><p>People you kept, with the research and recruiter context behind them.</p></div><button class="button primary" type="button" id="toggle-candidate-form">Add candidate <span aria-hidden="true">＋</span></button></div>
+          <section class="panel inline-form" id="candidate-form-panel" hidden><div class="panel-heading compact"><h2>Add a recruiter record</h2><button type="button" class="text-button" id="close-candidate-form">Close</button></div><form id="candidate-form"><div class="form-grid"><div><label for="candidate-name">Full name <span class="required">*</span></label><input id="candidate-name" required maxlength="300"></div><div><label for="candidate-company">Company</label><input id="candidate-company" maxlength="300"></div><div><label for="candidate-location">Location</label><input id="candidate-location" maxlength="300"></div><div><label for="candidate-profile">Public profile URL</label><input id="candidate-profile" type="url" maxlength="2000"></div></div><label for="candidate-notes">Recruiter notes</label><textarea id="candidate-notes" rows="3" maxlength="10000"></textarea><label for="candidate-role">Add to role</label><select id="candidate-role"><option value="">Candidate library only</option></select><p class="form-error" id="candidate-error" role="alert" hidden></p><button type="submit" class="button primary">Save candidate</button></form></section>
+          <div class="list-toolbar"><label class="search-field" for="candidate-filter"><span aria-hidden="true">⌕</span><input id="candidate-filter" type="search" placeholder="Search name, company, or notes" aria-label="Search candidates"></label><span id="candidate-count" class="subtle">0 candidates</span></div><div id="candidate-list" class="candidate-list"></div>
+        </section>
+        <section class="view" id="view-roles" aria-labelledby="roles-heading" hidden>
+          <div class="page-heading"><div><div class="eyebrow">MAKE THE NEXT MOVE VISIBLE</div><h1 id="roles-heading">Roles & pipeline</h1><p>Keep a focused shortlist and record each recruiting stage explicitly.</p></div><button class="button primary" type="button" id="toggle-role-form">New role <span aria-hidden="true">＋</span></button></div>
+          <section class="panel inline-form" id="role-form-panel" hidden><div class="panel-heading compact"><h2>Create a role</h2><button class="text-button" type="button" id="close-role-form">Close</button></div><form id="role-form"><div class="form-grid"><div><label for="role-title">Role title <span class="required">*</span></label><input id="role-title" required maxlength="300" placeholder="e.g. Senior product engineer"></div><div><label for="role-company">Company</label><input id="role-company" maxlength="300"></div><div><label for="role-location">Location</label><input id="role-location" maxlength="300" placeholder="e.g. Remote / San Francisco"></div></div><label for="role-description">Role brief</label><textarea id="role-description" rows="4" maxlength="20000" placeholder="Requirements, scope, and what success looks like."></textarea><p class="form-error" id="role-error" role="alert" hidden></p><button class="button primary" type="submit">Create role</button></form></section>
+          <div class="roles-layout"><section class="panel role-list-panel"><div class="panel-heading compact"><h2>Open roles</h2><span id="role-count" class="subtle">0</span></div><div id="role-list"></div></section><section class="panel pipeline-panel"><div id="pipeline-content"></div></section></div>
+        </section>
+        <section class="view" id="view-projects" aria-labelledby="projects-heading" hidden>
+          <div class="page-heading"><div><div class="eyebrow">ONE WORKSPACE, TRACEABLE ORIGINS</div><h1 id="projects-heading">Projects & imports</h1><p>Bring selected records forward while preserving their original project lineage.</p></div><span class="small-badge">LOCAL WORKSPACE</span></div>
+          <div class="notice"><span aria-hidden="true">↳</span><p>Project inventory, connected services, and imported records are shown with their actual status. Original source projects retain their own evidence and data.</p></div>
+          <div id="integration-list" class="integration-list"></div>
+          <div class="projects-layout"><section class="panel"><div class="panel-heading"><div><h2>Source projects</h2><p>Consolidation map and original owners.</p></div><span id="project-count" class="subtle"></span></div><div id="project-list"></div></section><section class="panel import-panel"><div class="panel-heading"><div><h2>Import selected records</h2><p>Preview first, then explicitly add to this workspace.</p></div></div><form id="import-form"><label for="import-format">Source format</label><select id="import-format"><option value="candidate-os-csv">Candidate Intelligence OS · CSV</option><option value="talentos-bundle">TalentOS · workspace JSON</option></select><label for="import-file">Choose an export file</label><input id="import-file" type="file" accept=".csv,.json,text/csv,application/json"><label for="import-content">Or paste export content</label><textarea id="import-content" rows="7" maxlength="120000" spellcheck="false" placeholder="Paste the selected export here."></textarea><p class="field-help">Selected exports up to 120 KB. Keep private documents, credentials, and unrelated data in the original source project. Imported observations require review.</p><p class="form-error" id="import-error" role="alert" hidden></p><button type="submit" class="button secondary" id="import-preview-button">Preview import</button></form><div id="import-preview" hidden></div><div id="import-history"></div></section></div>
+        </section>
+      </main>
+      <footer class="footer">Research observations → recruiter decisions <span>Public sources only · Email deliverability unknown</span></footer>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

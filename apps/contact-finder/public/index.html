@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#174b44">
+  <title>Lead Finder — Your contact research desk</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Lead Finder home"><span class="brand-mark" aria-hidden="true">lf<span>·</span></span><span>Lead Finder<small>YOUR CONTACT RESEARCH DESK</small></span></a>
+    <div class="header-actions"><span class="local-badge"><span class="status-dot"></span>Local workspace</span><span class="public-badge">PUBLIC SOURCES ONLY</span></div>
+  </header>
+  <main>
+    <section class="intro" aria-labelledby="page-title">
+      <div><p class="eyebrow">A LITTLE LESS SEARCHING. A LITTLE MORE KNOWING.</p><h1 id="page-title">Work emails, with a paper trail.</h1><p class="intro-copy">Start with a person. Find emails published on public pages.<br class="desktop-break">Keep the source, review the match, and export the contacts you trust.</p></div>
+      <div class="intro-note"><span class="note-icon" aria-hidden="true">↗</span><span>Your browser. Your research.<br><strong>No messages sent.</strong></span></div>
+    </section>
+    <section class="stats" aria-label="Workspace totals">
+      <div class="stat" title="Counts cover the 200 most recent searches."><span class="stat-icon" aria-hidden="true">⌕</span><div><strong id="stat-searches">0</strong><span>Recent searches</span></div></div>
+      <div class="stat" title="Pending matches in the 200 most recent searches."><span class="stat-icon" aria-hidden="true">◎</span><div><strong id="stat-pending">0</strong><span>Recent matches to review</span></div></div>
+      <div class="stat" title="Confirmed emails in the 200 most recent searches. Exports include all confirmed contacts."><span class="stat-icon" aria-hidden="true">✓</span><div><strong id="stat-approved">0</strong><span>Recent confirmed emails</span></div></div>
+      <div class="stat stat-note"><span class="status-dot"></span><span>Saved on this computer<br><strong>Evidence stays with each contact</strong></span></div>
+    </section>
+    <div id="connection-error" class="notice notice-error" role="alert" hidden></div>
+    <div class="workspace">
+      <aside class="research-column">
+        <section class="panel search-panel" aria-labelledby="search-heading">
+          <div class="panel-heading"><div><p class="eyebrow">01 / DISCOVER</p><h2 id="search-heading">Find a work email</h2></div><span class="step-mark" aria-hidden="true">↗</span></div>
+          <form id="search-form">
+            <div class="field-grid"><div><label for="person-name">Full name</label><input id="person-name" name="name" placeholder="Person’s full name" autocomplete="off" required></div><div><label for="company">Company <span class="optional">optional</span></label><input id="company" name="company" placeholder="Company name" autocomplete="off"></div></div>
+            <label for="domain">Company domain <span class="optional">or provide a starting page below</span></label>
+            <input id="domain" name="domain" type="text" placeholder="company.com" autocomplete="off" autocapitalize="none" spellcheck="false">
+            <p class="field-hint">Know the company website? Enter its domain and search in one step.</p>
+            <details class="profile-reference"><summary>LinkedIn reference <span class="optional">optional</span></summary><label for="linkedin-url">LinkedIn profile URL</label><input id="linkedin-url" name="linkedinUrl" type="url" placeholder="https://www.linkedin.com/in/…" autocomplete="off"><p class="field-hint">Saved as a reference only. LinkedIn pages are not fetched. <a id="open-profile" href="#" target="_blank" rel="noopener noreferrer" hidden>Open profile ↗</a></p></details>
+            <div id="search-links" class="search-links" hidden><span>Need a source?</span><a id="web-search" href="https://www.google.com/" target="_blank" rel="noopener noreferrer">Search the web ↗</a><a id="company-search" href="https://www.google.com/" target="_blank" rel="noopener noreferrer">Company pages ↗</a></div>
+            <fieldset class="method-fieldset"><legend>Choose your source</legend><div class="mode-tabs"><label class="mode-option"><input type="radio" name="mode" value="website" checked><span>Website search</span></label><label class="mode-option"><input type="radio" name="mode" value="public"><span>Single page</span></label><label class="mode-option"><input type="radio" name="mode" value="paste"><span>Paste text</span></label></div></fieldset>
+            <div id="public-fields" class="source-fields"><label id="source-url-label" for="source-url">Website or starting page <span class="optional">optional with a company domain</span></label><input id="source-url" name="sourceUrl" type="url" placeholder="https://company.com"><p id="source-url-hint" class="field-hint">Checks up to 5 public pages on the same website, following Contact, About, Team, or relevant staff links it finds. No outside websites, private pages, or LinkedIn.</p></div>
+            <div id="paste-fields" class="source-fields" hidden><label for="source-text">Public source text</label><textarea id="source-text" name="sourceText" rows="5" placeholder="Paste a public bio, contact section, or page text that includes an email…"></textarea><label for="paste-source-url">Source URL <span class="optional">optional</span></label><input id="paste-source-url" name="pasteSourceUrl" type="url" placeholder="https://…"><p class="field-hint">Paste only public information you’re authorized to use. Keep the source link so you can review the match.</p></div>
+            <div id="form-error" class="notice notice-error" role="alert" hidden></div>
+            <button id="discover-button" class="button button-primary button-full" type="submit"><span id="discover-label">Search website for emails</span><span aria-hidden="true">→</span></button>
+            <p class="privacy-note">No guessed addresses. No automated outreach.</p>
+          </form>
+        </section>
+        <section class="panel history-panel" aria-labelledby="history-heading"><div class="history-heading"><h2 id="history-heading">Recent searches</h2><button id="refresh-history" class="text-button" type="button">Refresh</button></div><div id="history-list"><p class="empty-history">Your searches will appear here.</p></div></section>
+      </aside>
+      <section class="panel results-panel" aria-labelledby="results-heading">
+        <div class="results-top"><div><p class="eyebrow">02 / REVIEW & KEEP</p><h2 id="results-heading">Your findings</h2></div><div class="export-actions"><button id="export-csv" class="button button-outline" type="button" disabled><span aria-hidden="true">↓</span> Export CSV</button><button id="export-json" class="button button-quiet export-json" type="button" disabled>JSON</button></div></div>
+        <div class="results-subline"><span id="results-subtitle">Published emails and their sources, together.</span><span id="result-count" class="count-badge" hidden>0 found</span></div>
+        <div id="job-summary" class="job-summary" hidden></div>
+        <div id="result-content" aria-live="polite" aria-busy="false">
+          <div class="empty-state"><div class="empty-illustration" aria-hidden="true"><div class="paper-card"><span class="paper-avatar"></span><span class="paper-line"></span><span class="paper-line short"></span><span class="paper-email">@</span></div><span class="paper-check">✓</span><span class="orbit-dot"></span></div><p class="eyebrow">A GOOD CONTACT STARTS WITH A GOOD SOURCE</p><h3>Your first find is one search away.</h3><p>Enter the person’s name and company domain.<br class="desktop-break">We’ll check the website and keep each published email’s source.</p><div class="empty-steps"><span><b>1</b> Search the website</span><span><b>2</b> Review the source</span><span><b>3</b> Keep the match</span></div></div>
+        </div>
+        <div class="results-footnote"><span class="footnote-icon" aria-hidden="true">i</span><p><strong>You make the final match.</strong> An email on a page doesn’t establish who owns it. “Confirm person match” means you reviewed the evidence. Export includes confirmed contacts and excludes suppressed or invalid emails.</p></div>
+      </section>
+    </div>
+    <footer class="app-footer"><span>LEAD FINDER <span class="footer-divider">/</span> PERSONAL WORKSPACE</span><span>Find the source. Check the match. Keep the evidence.</span></footer>
+  </main>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
